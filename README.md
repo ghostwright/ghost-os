@@ -37,6 +37,27 @@ Slack messages, Finder folders — Ghost OS operates native macOS apps, not just
 
 ![Ghost OS Slack + Finder Demo](demo-slack-finder.gif)
 
+## Why Ghost OS?
+
+Other computer-use tools take screenshots and guess what's on screen. Ghost OS reads the macOS accessibility tree — structured, labeled data about every element in every app. No vision model needed. No pixel-guessing.
+
+And when it figures out a workflow, it saves it. Other tools repeat the same expensive reasoning every time.
+
+- **Self-learning** — A frontier model figures out the workflow once. A small model runs it forever.
+- **Transparent** — Recipes are JSON. Read every step before running. No black box.
+- **Native** — Accessibility tree, not screenshots. Structured data, not pixel coordinates.
+- **Any app** — Not just browsers. Slack, Finder, Messages — anything on your Mac.
+- **Local** — Your data never leaves your machine.
+- **Open** — MCP protocol. Works with Claude Code, Cursor, VS Code, or any MCP client.
+
+| | | Ghost OS | Anthropic Computer Use | OpenAI Operator | OpenClaw |
+|:---:|------|:--:|:--:|:--:|:--:|
+| 👀 | **How it sees** | Accessibility tree + screenshots | Screenshots only | Screenshots only | Browser DOM |
+| 🖥️ | **Native apps** | Any macOS app | Any (via pixels) | Browser only | Browser only |
+| 🧠 | **Learns workflows** | JSON recipes | No | No | No |
+| 🔒 | **Data stays local** | Yes | Depends on setup | No (cloud) | Yes |
+| 📖 | **Open source** | MIT | No | No | MIT |
+
 ## Install
 
 ```bash
