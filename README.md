@@ -22,12 +22,7 @@ Agent:   ghost_run recipe:"gmail-send" params:{recipient, subject, body}
          → Compose opens, fields fill, email sends. Done.
 ```
 
-<!-- TODO: Replace with demo GIF
-Split screen: Chrome (left) + Terminal (right)
-Run ghost_run gmail-send, watch compose open and send
-Record: Cmd+Shift+5 or https://gifcap.dev
-Convert: ffmpeg -i demo.mov -vf "fps=10,scale=1280:-1" demo.gif
--->
+![Ghost OS Setup Demo](demo.gif)
 
 ## Install
 
