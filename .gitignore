@@ -6,3 +6,4 @@ DerivedData/
 *.o
 *.dylib
 .DS_Store
+docs/RELEASE-RUNBOOK.md
