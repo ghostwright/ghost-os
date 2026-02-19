@@ -34,23 +34,105 @@ public enum MCPDispatch {
             return Perception.getState(appName: str(args, "app"))
 
         case "ghost_find":
-            return ToolResult(success: true, data: ["note": "ghost_find: Phase 2 implementation"])
+            return Perception.findElements(
+                query: str(args, "query"),
+                role: str(args, "role"),
+                domId: str(args, "dom_id"),
+                domClass: str(args, "dom_class"),
+                identifier: str(args, "identifier"),
+                appName: str(args, "app"),
+                depth: int(args, "depth")
+            )
 
         case "ghost_read":
-            return ToolResult(success: true, data: ["note": "ghost_read: Phase 2 implementation"])
+            return Perception.readContent(
+                appName: str(args, "app"),
+                query: str(args, "query"),
+                depth: int(args, "depth")
+            )
 
         case "ghost_inspect":
-            return ToolResult(success: true, data: ["note": "ghost_inspect: Phase 2 implementation"])
+            guard let query = str(args, "query") else {
+                return ToolResult(success: false, error: "Missing required parameter: query")
+            }
+            return Perception.inspect(
+                query: query,
+                role: str(args, "role"),
+                domId: str(args, "dom_id"),
+                appName: str(args, "app")
+            )
 
         case "ghost_element_at":
-            return ToolResult(success: true, data: ["note": "ghost_element_at: Phase 2 implementation"])
+            guard let x = double(args, "x"), let y = double(args, "y") else {
+                return ToolResult(success: false, error: "Missing required parameters: x, y")
+            }
+            return Perception.elementAt(x: x, y: y)
 
         case "ghost_screenshot":
-            return ToolResult(success: true, data: ["note": "ghost_screenshot: Phase 2 implementation"])
+            return Perception.screenshot(
+                appName: str(args, "app"),
+                fullResolution: bool(args, "full_resolution") ?? false
+            )
 
         // Actions
-        case "ghost_click", "ghost_type", "ghost_press", "ghost_hotkey", "ghost_scroll":
-            return ToolResult(success: true, data: ["note": "\(tool): Phase 3 implementation"])
+        case "ghost_click":
+            return FocusManager.withFocusRestore {
+                Actions.click(
+                    query: str(args, "query"),
+                    role: str(args, "role"),
+                    domId: str(args, "dom_id"),
+                    appName: str(args, "app"),
+                    x: double(args, "x"),
+                    y: double(args, "y"),
+                    button: str(args, "button"),
+                    count: int(args, "count")
+                )
+            }
+
+        case "ghost_type":
+            guard let text = str(args, "text") else {
+                return ToolResult(success: false, error: "Missing required parameter: text")
+            }
+            return FocusManager.withFocusRestore {
+                Actions.typeText(
+                    text: text,
+                    into: str(args, "into"),
+                    domId: str(args, "dom_id"),
+                    appName: str(args, "app"),
+                    clear: bool(args, "clear") ?? false
+                )
+            }
+
+        case "ghost_press":
+            guard let key = str(args, "key") else {
+                return ToolResult(success: false, error: "Missing required parameter: key")
+            }
+            let modifiers = (args["modifiers"] as? [String])
+            return FocusManager.withFocusRestore {
+                Actions.pressKey(key: key, modifiers: modifiers, appName: str(args, "app"))
+            }
+
+        case "ghost_hotkey":
+            guard let keys = args["keys"] as? [String] else {
+                return ToolResult(success: false, error: "Missing required parameter: keys (array of strings)")
+            }
+            return FocusManager.withFocusRestore {
+                Actions.hotkey(keys: keys, appName: str(args, "app"))
+            }
+
+        case "ghost_scroll":
+            guard let direction = str(args, "direction") else {
+                return ToolResult(success: false, error: "Missing required parameter: direction")
+            }
+            return FocusManager.withFocusRestore {
+                Actions.scroll(
+                    direction: direction,
+                    amount: int(args, "amount"),
+                    appName: str(args, "app"),
+                    x: double(args, "x"),
+                    y: double(args, "y")
+                )
+            }
 
         case "ghost_focus":
             guard let app = str(args, "app") else {
@@ -59,11 +141,33 @@ public enum MCPDispatch {
             return FocusManager.focus(appName: app, windowTitle: str(args, "window"))
 
         case "ghost_window":
-            return ToolResult(success: true, data: ["note": "ghost_window: Phase 4 implementation"])
+            guard let action = str(args, "action"),
+                  let app = str(args, "app")
+            else {
+                return ToolResult(success: false, error: "Missing required parameters: action, app")
+            }
+            return Actions.manageWindow(
+                action: action,
+                appName: app,
+                windowTitle: str(args, "window"),
+                x: double(args, "x"),
+                y: double(args, "y"),
+                width: double(args, "width"),
+                height: double(args, "height")
+            )
 
         // Wait
         case "ghost_wait":
-            return ToolResult(success: true, data: ["note": "ghost_wait: Phase 4 implementation"])
+            guard let condition = str(args, "condition") else {
+                return ToolResult(success: false, error: "Missing required parameter: condition")
+            }
+            return WaitManager.waitFor(
+                condition: condition,
+                value: str(args, "value"),
+                appName: str(args, "app"),
+                timeout: double(args, "timeout") ?? 10,
+                interval: double(args, "interval") ?? 0.5
+            )
 
         // Recipes
         case "ghost_recipes":
