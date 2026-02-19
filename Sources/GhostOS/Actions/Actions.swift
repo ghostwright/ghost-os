@@ -622,18 +622,13 @@ public enum Actions {
         "AXSecureTextField",
     ]
 
-    /// Maximum possible field score: exact(100) + editable(50) + visible(20) = 170.
-    /// When we find this score, no other element can beat it - exit immediately.
-    private static let perfectFieldScore = 170
-
-    /// Find an editable field by name. Scores candidates and picks the best.
-    /// Has a 2-second timeout (v1's pattern) so deep tree walks don't block.
-    /// Exits immediately on a perfect score (170) since nothing can beat it.
+    /// Find an editable field by name. Searches ALL matching elements and
+    /// scores them, preferring editable roles and exact/prefix matches.
+    /// This is the v1 SmartResolver pattern adapted for v2.
     private static func findEditableField(named query: String, appName: String?) -> Element? {
         guard let appElement = resolveAppElement(appName: appName) else { return nil }
 
         let queryLower = query.lowercased()
-        let deadline = Date().addingTimeInterval(2.0) // 2s timeout like v1
 
         // Search from content root first (web area), then full tree
         let searchRoot: Element
@@ -647,15 +642,16 @@ public enum Actions {
             searchRoot = appElement
         }
 
-        // Score candidates with timeout and early exit on perfect match
+        // Collect ALL matching elements with scores.
+        // Uses semantic depth (empty layout containers cost 0) so we reach
+        // Gmail compose fields at DOM depth 30+ within budget of 25.
         var candidates: [(element: Element, score: Int)] = []
         scoreFieldCandidates(
             element: searchRoot,
             queryLower: queryLower,
             candidates: &candidates,
             semanticDepth: 0,
-            maxSemanticDepth: GhostConstants.semanticDepthBudget,
-            deadline: deadline
+            maxSemanticDepth: GhostConstants.semanticDepthBudget
         )
 
         // Return the highest-scoring candidate
@@ -673,21 +669,14 @@ public enum Actions {
     /// Walk the tree scoring elements as field candidates.
     /// Uses SEMANTIC depth (empty layout containers cost 0) so we can
     /// reach Gmail compose fields at DOM depth 30+ within budget of 25.
-    /// Exits early on perfect score (170) or when deadline is reached.
     private static func scoreFieldCandidates(
         element: Element,
         queryLower: String,
         candidates: inout [(element: Element, score: Int)],
         semanticDepth: Int,
-        maxSemanticDepth: Int,
-        deadline: Date
+        maxSemanticDepth: Int
     ) {
-        // Exit if: depth exceeded, too many candidates, timeout, or perfect match found
-        guard semanticDepth <= maxSemanticDepth,
-              candidates.count < 100,
-              Date() < deadline,
-              !(candidates.contains { $0.score >= perfectFieldScore })
-        else { return }
+        guard semanticDepth <= maxSemanticDepth, candidates.count < 100 else { return }
 
         let role = element.role() ?? ""
         let titleLower = (element.title() ?? "").lowercased()
@@ -746,8 +735,7 @@ public enum Actions {
                 element: child, queryLower: queryLower,
                 candidates: &candidates,
                 semanticDepth: childSemanticDepth,
-                maxSemanticDepth: maxSemanticDepth,
-                deadline: deadline
+                maxSemanticDepth: maxSemanticDepth
             )
         }
     }
