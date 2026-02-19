@@ -54,23 +54,17 @@ public enum ScreenCapture {
         let config = SCStreamConfiguration()
         config.showsCursor = false
 
-        // On Retina displays, SCWindow.frame is in points but capture is in pixels.
-        // We need to account for the backing scale factor to get the right pixel dimensions.
-        // Use scaleFactor of 1 for our max-width calculation to ensure we downscale properly.
+        // v1's proven configuration - no scalesToFit, no Retina assumptions.
+        // These exact settings worked 100+ times in v1 without crashes.
         if fullResolution {
-            // Native pixel resolution (2x on Retina)
-            config.width = Int(window.frame.width * 2)
-            config.height = Int(window.frame.height * 2)
+            config.width = Int(window.frame.width)
+            config.height = Int(window.frame.height)
         } else {
-            // Downscale to max 1280px width in POINTS (not pixels)
-            // This produces a 1280px wide image regardless of Retina scaling
-            let maxWidth: CGFloat = 1280
+            let maxWidth = 1280
             let aspect = window.frame.height / window.frame.width
-            let captureWidth = min(maxWidth, window.frame.width)
-            config.width = Int(captureWidth)
-            config.height = Int(captureWidth * aspect)
-            // Setting scalesToFit ensures the capture fits our dimensions
-            config.scalesToFit = true
+            let captureWidth = min(maxWidth, Int(window.frame.width))
+            config.width = captureWidth
+            config.height = Int(CGFloat(captureWidth) * aspect)
         }
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
