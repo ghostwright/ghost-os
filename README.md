@@ -32,7 +32,7 @@ Convert: ffmpeg -i demo.mov -vf "fps=10,scale=1280:-1" demo.gif
 ## Install
 
 ```bash
-brew install ghostwright/tap/ghost-os
+brew install ghostwright/ghost-os/ghost-os
 ghost setup
 ```
 
