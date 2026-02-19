@@ -85,7 +85,7 @@ public enum Actions {
 
             switch response {
             case .success:
-                Thread.sleep(forTimeInterval: 0.15)
+                usleep(300_000) // 300ms for background app to react (v1's timing)
                 Log.info("AX-native press succeeded for '\(query ?? domId ?? "")'")
                 return ToolResult(
                     success: true,
@@ -271,12 +271,15 @@ public enum Actions {
 
                 // Read back from the same element we found earlier
                 let readback = readbackFromElement(element)
+                let textPrefix = String(text.prefix(10))
+                let verified = readback.contains(textPrefix)
                 return ToolResult(
                     success: true,
                     data: [
                         "method": "click-then-type",
                         "field": fieldName,
                         "typed": text,
+                        "verified": verified,
                         "readback": readback,
                     ]
                 )

@@ -40,8 +40,14 @@ public enum MCPDispatch {
             return formatResult(result, toolName: "ghost_screenshot")
         }
 
-        // Return as MCP image content for inline display in Claude Code
+        // Return as MCP image + text caption (v1 pattern: both content types)
         let mimeType = data["mime_type"] as? String ?? "image/png"
+        let width = data["width"] as? Int ?? 0
+        let height = data["height"] as? Int ?? 0
+        let windowTitle = data["window_title"] as? String ?? ""
+        var caption = "Screenshot: \(width)x\(height)"
+        if !windowTitle.isEmpty { caption += " - \(windowTitle)" }
+
         return [
             "content": [
                 [
@@ -49,7 +55,11 @@ public enum MCPDispatch {
                     "data": base64,
                     "mimeType": mimeType,
                 ] as [String: Any],
-            ],
+                [
+                    "type": "text",
+                    "text": caption,
+                ] as [String: Any],
+            ] as [[String: Any]],
             "isError": false,
         ]
     }

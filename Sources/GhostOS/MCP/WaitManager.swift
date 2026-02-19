@@ -135,12 +135,14 @@ public enum WaitManager {
     ) -> Bool {
         guard depth < maxDepth else { return false }
 
-        // Check this element's name-related properties (not stringValue)
+        // Check name-related properties. Also check AXValue via raw API
+        // for Chrome AXStaticText elements that only have text in AXValue.
         let checkProps: [String?] = [
             element.title(),
             element.computedName(),
             element.descriptionText(),
             element.identifier(),
+            Perception.readValue(from: element),
         ]
         for prop in checkProps {
             if let text = prop?.lowercased(), text.contains(query) {
