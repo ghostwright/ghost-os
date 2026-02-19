@@ -70,28 +70,28 @@ ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":
 
 ## 20 Tools
 
-| | Tool | Purpose |
-|---|------|---------|
-| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_context` | Current app, URL, focused element, interactive elements |
-| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_state` | All running apps and their windows |
-| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_find` | Find elements by name, role, or DOM id |
-| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_read` | Read text content from any app |
-| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_inspect` | Full metadata about one element |
-| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_element_at` | Identify element at screen coordinates |
-| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_screenshot` | Visual capture when you need it |
-| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_click` | Click elements or coordinates |
-| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_type` | Type into fields by name |
-| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_press` | Press keys (Return, Tab, Escape) |
-| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_hotkey` | Key combos (Cmd+L, Cmd+Return) |
-| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_scroll` | Scroll in any direction |
-| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_focus` | Bring an app to the front |
-| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_window` | Minimize, maximize, move, resize |
-| ![Wait](https://img.shields.io/badge/-Wait-E8A317) | `ghost_wait` | Wait for conditions (URL change, element appear) |
-| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_recipes` | List available recipes |
-| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_run` | Execute a recipe with parameters |
-| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_recipe_show` | View recipe steps |
-| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_recipe_save` | Save a new recipe |
-| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_recipe_delete` | Remove a recipe |
+| | Tool | What it does |
+|:---:|------|-------------|
+| 🔍 | `ghost_context` | Get the current app, window title, URL, focused element, and all interactive elements on screen |
+| 🔍 | `ghost_state` | List every running app with its windows, positions, and sizes |
+| 🔍 | `ghost_find` | Search for elements by name, role, DOM id, or CSS class across the entire UI |
+| 🔍 | `ghost_read` | Extract text content from any app, with depth control for nested content |
+| 🔍 | `ghost_inspect` | Get complete metadata for one element: role, position, actions, DOM id, editable state |
+| 🔍 | `ghost_element_at` | Identify what element is at a specific screen coordinate |
+| 📸 | `ghost_screenshot` | Capture a window screenshot for visual debugging |
+| 🎯 | `ghost_click` | Click an element by name, DOM id, or screen coordinates |
+| ⌨️ | `ghost_type` | Type text into a specific field by name, or at the current cursor |
+| ⌨️ | `ghost_press` | Press a single key like Return, Tab, Escape, or arrow keys |
+| ⌨️ | `ghost_hotkey` | Press key combinations like Cmd+L, Cmd+Return, Cmd+Shift+P |
+| 🎯 | `ghost_scroll` | Scroll up, down, left, or right in any app window |
+| 🪟 | `ghost_focus` | Bring any app or specific window to the front |
+| 🪟 | `ghost_window` | Minimize, maximize, close, move, or resize any window |
+| ⏳ | `ghost_wait` | Wait for a URL change, element to appear or disappear, or title change |
+| 📦 | `ghost_recipes` | List all installed recipes with descriptions and parameters |
+| ▶️ | `ghost_run` | Execute a recipe with parameter substitution |
+| 📦 | `ghost_recipe_show` | View the full steps and configuration of a recipe |
+| 📦 | `ghost_recipe_save` | Install a new recipe from JSON |
+| 📦 | `ghost_recipe_delete` | Remove an installed recipe |
 
 ## Diagnostics
 
