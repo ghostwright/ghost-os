@@ -70,28 +70,40 @@ ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":
 
 ## 20 Tools
 
-| | Tool | Purpose |
-|---|------|---------|
-| 👁️ | `ghost_context` | Current app, URL, focused element, interactive elements |
-| 👁️ | `ghost_find` | Find elements by name, role, or DOM id |
-| 👁️ | `ghost_read` | Read text content from any app |
-| 👁️ | `ghost_screenshot` | Visual capture for debugging |
-| 👁️ | `ghost_inspect` | Full metadata about one element |
-| 👁️ | `ghost_state` | All running apps and windows |
-| 👁️ | `ghost_element_at` | Identify element at screen coordinates |
-| 🖱️ | `ghost_click` | Click elements or coordinates |
-| ⌨️ | `ghost_type` | Type into fields by name |
-| ⌨️ | `ghost_press` | Press keys (Return, Tab, Escape) |
-| ⌨️ | `ghost_hotkey` | Key combos (Cmd+L, Cmd+Return) |
-| 🖱️ | `ghost_scroll` | Scroll in any direction |
-| 🪟 | `ghost_focus` | Bring an app to the front |
-| 🪟 | `ghost_window` | Minimize, maximize, move, resize |
-| ⏳ | `ghost_wait` | Wait for conditions (URL change, element appear) |
-| 📋 | `ghost_recipes` | List available recipes |
-| ▶️ | `ghost_run` | Execute a recipe with parameters |
-| 📋 | `ghost_recipe_show` | View recipe steps |
-| 💾 | `ghost_recipe_save` | Save a new recipe |
-| 🗑️ | `ghost_recipe_delete` | Remove a recipe |
+**Perception**
+
+| Tool | Purpose |
+|------|---------|
+| `ghost_context` | Current app, URL, focused element, interactive elements |
+| `ghost_state` | All running apps and their windows |
+| `ghost_find` | Find elements by name, role, or DOM id |
+| `ghost_read` | Read text content from any app |
+| `ghost_inspect` | Full metadata about one element |
+| `ghost_element_at` | Identify element at screen coordinates |
+| `ghost_screenshot` | Visual capture when you need it |
+
+**Action**
+
+| Tool | Purpose |
+|------|---------|
+| `ghost_click` | Click elements or coordinates |
+| `ghost_type` | Type into fields by name |
+| `ghost_press` | Press keys (Return, Tab, Escape) |
+| `ghost_hotkey` | Key combos (Cmd+L, Cmd+Return) |
+| `ghost_scroll` | Scroll in any direction |
+| `ghost_focus` | Bring an app to the front |
+| `ghost_window` | Minimize, maximize, move, resize |
+| `ghost_wait` | Wait for conditions (URL change, element appear) |
+
+**Recipes**
+
+| Tool | Purpose |
+|------|---------|
+| `ghost_recipes` | List available recipes |
+| `ghost_run` | Execute a recipe with parameters |
+| `ghost_recipe_show` | View recipe steps |
+| `ghost_recipe_save` | Save a new recipe |
+| `ghost_recipe_delete` | Remove a recipe |
 
 ## Diagnostics
 
