@@ -4,9 +4,13 @@
 // Auto-detects transport: Content-Length framing (Claude Code) or NDJSON (Claude Desktop).
 // stdout is captured at init for exclusive MCP use; all other output goes to stderr.
 
+import ApplicationServices
 import Foundation
 
 /// MCP server that handles JSON-RPC messages over stdio.
+/// @MainActor ensures CoreGraphics server connection is initialized on the
+/// main thread. Without this, ScreenCaptureKit crashes with CGS_REQUIRE_INIT.
+@MainActor
 public final class MCPServer {
 
     /// Dedicated file handle for MCP protocol output (the real stdout).
