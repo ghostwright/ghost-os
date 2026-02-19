@@ -207,14 +207,28 @@ struct SetupWizard {
             return
         }
 
-        // Add Ghost OS to MCP
-        print("  Adding Ghost OS to Claude Code MCP servers...")
-        let addResult = runShell("claude mcp add ghost-os \(binaryPath) -- mcp 2>&1")
+        // Write config directly — claude mcp add also hangs
+        var config: [String: Any] = [:]
+        if let data = FileManager.default.contents(atPath: configPath),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        {
+            config = existing
+        }
 
-        if addResult.exitCode == 0 {
-            printOK("Added ghost-os MCP server")
-        } else {
-            print("  Auto-configure failed. Run this command manually:")
+        var mcpServers = config["mcpServers"] as? [String: Any] ?? [:]
+        mcpServers["ghost-os"] = [
+            "type": "stdio",
+            "command": binaryPath,
+            "args": ["mcp"],
+        ]
+        config["mcpServers"] = mcpServers
+
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+            try jsonData.write(to: URL(fileURLWithPath: configPath))
+            printOK("Added ghost-os MCP server (\(binaryPath))")
+        } catch {
+            print("  Could not write config. Run this command manually:")
             print("    claude mcp add ghost-os \(binaryPath) -- mcp")
             print("")
         }
