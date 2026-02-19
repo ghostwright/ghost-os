@@ -1,12 +1,11 @@
 // main.swift - Ghost OS v2 CLI entry point
 //
-// Thin CLI with four commands:
-//   ghost mcp     - Start the MCP server (the main thing)
-//   ghost setup   - Interactive setup wizard
-//   ghost status  - Health check
-//   ghost test    - Quick self-test
-//
-// Everything else goes through MCP tools.
+// Thin CLI:
+//   ghost mcp       Start the MCP server (used by Claude Code)
+//   ghost setup     Interactive setup wizard
+//   ghost doctor    Diagnose issues and suggest fixes
+//   ghost status    Quick health check
+//   ghost version   Print version
 
 import AppKit
 import ApplicationServices
@@ -15,9 +14,6 @@ import GhostOS
 
 // Force CoreGraphics server connection initialization.
 // ScreenCaptureKit requires a CG connection to the window server.
-// Without this, the process crashes with CGS_REQUIRE_INIT when
-// trying to capture screenshots. v1 got this automatically through
-// its @MainActor async entry point; v2's synchronous main needs it explicit.
 _ = CGMainDisplayID()
 
 let args = CommandLine.arguments.dropFirst()
@@ -28,20 +24,16 @@ case "mcp":
     let server = MCPServer()
     server.run()
 
+case "setup":
+    let wizard = SetupWizard()
+    wizard.run()
+
+case "doctor":
+    var doctor = Doctor()
+    doctor.run()
+
 case "status":
     printStatus()
-
-case "setup":
-    // Phase 6 implementation
-    print("Ghost OS v\(GhostOS.version)")
-    print("Setup wizard coming in Phase 6.")
-    print("For now, ensure Accessibility permission is granted in")
-    print("System Settings > Privacy & Security > Accessibility")
-
-case "test":
-    // Phase 7 implementation
-    print("Ghost OS v\(GhostOS.version)")
-    print("Self-test coming in Phase 7.")
 
 case "version", "--version", "-v":
     print("Ghost OS v\(GhostOS.version)")
@@ -61,34 +53,23 @@ func printStatus() {
     print("Ghost OS v\(GhostOS.version)")
     print("")
 
-    // Accessibility permission
     let hasAX = AXIsProcessTrusted()
     print("Accessibility: \(hasAX ? "granted" : "NOT GRANTED")")
     if !hasAX {
-        print("  Grant in: System Settings > Privacy & Security > Accessibility")
+        print("  Run: ghost setup")
     }
 
-    // Screen recording permission
     let hasScreenRecording = ScreenCapture.hasPermission()
-    print("Screen Recording: \(hasScreenRecording ? "granted" : "NOT GRANTED")")
-    if !hasScreenRecording {
-        print("  Grant in: System Settings > Privacy & Security > Screen Recording")
-    }
+    print("Screen Recording: \(hasScreenRecording ? "granted" : "not granted")")
 
-    // Recipes
     let recipes = RecipeStore.listRecipes()
     print("Recipes: \(recipes.count) installed")
 
-    // Running apps
     let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
     print("Running apps: \(apps.count)")
 
     print("")
-    if hasAX {
-        print("Status: Ready")
-    } else {
-        print("Status: Accessibility permission required")
-    }
+    print(hasAX ? "Status: Ready" : "Status: Run `ghost setup` first")
 }
 
 // MARK: - Usage
@@ -101,12 +82,15 @@ func printUsage() {
 
     Commands:
       mcp       Start the MCP server (used by Claude Code)
-      status    Check permissions, recipes, health
-      setup     Interactive setup wizard
-      test      Run quick self-test
+      setup     Interactive setup wizard (first-time configuration)
+      doctor    Diagnose issues and suggest fixes
+      status    Quick health check
       version   Print version
 
-    Ghost OS gives AI agents eyes and hands on macOS through the accessibility tree.
-    Run 'ghost setup' to configure, then add ghost-os to your Claude Code MCP config.
+    Get started:
+      ghost setup     Configure permissions and MCP
+      ghost doctor    Check if everything is working
+
+    Ghost OS gives AI agents eyes and hands on macOS.
     """)
 }
