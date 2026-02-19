@@ -226,12 +226,44 @@ struct SetupWizard {
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
             try jsonData.write(to: URL(fileURLWithPath: configPath))
-            printOK("Added ghost-os MCP server (\(binaryPath))")
+            print("  MCP server: \(binaryPath)")
         } catch {
-            print("  Could not write config. Run this command manually:")
+            print("  Could not write MCP config. Run this command manually:")
             print("    claude mcp add ghost-os \(binaryPath) -- mcp")
             print("")
         }
+
+        // Add tool permissions to ~/.claude/settings.json so all ghost-os
+        // MCP tools are auto-approved globally (no per-session prompts).
+        let settingsPath = NSHomeDirectory() + "/.claude/settings.json"
+        var settings: [String: Any] = [:]
+        if let data = FileManager.default.contents(atPath: settingsPath),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        {
+            settings = existing
+        }
+
+        var allowedTools = settings["allowedTools"] as? [String] ?? []
+        let ghostPermission = "mcp__ghost-os__*"
+        if !allowedTools.contains(ghostPermission) {
+            allowedTools.append(ghostPermission)
+            settings["allowedTools"] = allowedTools
+
+            do {
+                try FileManager.default.createDirectory(
+                    atPath: NSHomeDirectory() + "/.claude",
+                    withIntermediateDirectories: true
+                )
+                let jsonData = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+                try jsonData.write(to: URL(fileURLWithPath: settingsPath))
+                print("  Tool permissions: auto-approved")
+            } catch {
+                print("  Could not set tool permissions automatically.")
+                print("  You may be prompted to approve ghost-os tools on first use.")
+            }
+        }
+
+        printOK("Configured")
     }
 
     // MARK: - Step 5: Install Recipes
