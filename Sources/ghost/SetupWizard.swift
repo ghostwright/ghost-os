@@ -379,25 +379,30 @@ struct SetupWizard {
     }
 
     private func findBundledRecipesDir() -> String? {
-        // Check relative to the binary (for development builds)
         let binaryPath = ProcessInfo.processInfo.arguments[0]
         let binaryDir = (binaryPath as NSString).deletingLastPathComponent
 
-        // Development: binary is at .build/debug/ghost, recipes at ../../recipes/
-        let devPath = (binaryDir as NSString)
-            .deletingLastPathComponent  // .build
-            .appending("/recipes") as String
-        // Actually: .build/debug/ghost -> go up to project root
+        // Homebrew: /opt/homebrew/share/ghost-os/recipes/
+        let brewPaths = [
+            "/opt/homebrew/share/ghost-os/recipes",
+            "/usr/local/share/ghost-os/recipes",
+        ]
+        for path in brewPaths {
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+
+        // Development: .build/debug/ghost -> project root/recipes/
         let projectRoot = ((binaryDir as NSString)
             .deletingLastPathComponent as NSString)
             .deletingLastPathComponent
         let recipesPath = (projectRoot as NSString).appendingPathComponent("recipes")
-
         if FileManager.default.fileExists(atPath: recipesPath) {
             return recipesPath
         }
 
-        // Check next to the binary
+        // Sibling: next to the binary
         let siblingPath = (binaryDir as NSString).appendingPathComponent("recipes")
         if FileManager.default.fileExists(atPath: siblingPath) {
             return siblingPath
