@@ -216,17 +216,25 @@ public final class MCPServer {
         writeMessage(response)
     }
 
-    /// Write a JSON-RPC message using the detected transport.
+    /// Write a JSON-RPC message using the detected transport format.
+    /// Must match the input transport: NDJSON in = NDJSON out, Content-Length in = Content-Length out.
     private func writeMessage(_ message: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: message) else {
             Log.error("Failed to serialize response")
             return
         }
 
-        // Always use Content-Length framing for output (Claude Code expects it)
-        let header = "Content-Length: \(data.count)\r\n\r\n"
-        mcpOutput.write(Data(header.utf8))
-        mcpOutput.write(data)
+        switch transport {
+        case .ndjson, .unknown:
+            // NDJSON: just the JSON followed by newline
+            mcpOutput.write(data)
+            mcpOutput.write(Data("\n".utf8))
+        case .contentLength:
+            // Content-Length framing: header + body
+            let header = "Content-Length: \(data.count)\r\n\r\n"
+            mcpOutput.write(Data(header.utf8))
+            mcpOutput.write(data)
+        }
     }
 
     // MARK: - Instructions
