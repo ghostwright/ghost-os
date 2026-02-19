@@ -45,7 +45,7 @@
       },
       "wait_after": {
         "condition": "titleContains",
-        "timeout": 5,
+        "timeout": "5",
         "value": "{{channel}}"
       }
     },
@@ -85,7 +85,7 @@
       "note": "Wait for message to appear in channel",
       "params": {
         "condition": "elementExists",
-        "timeout": 3,
+        "timeout": "3",
         "value": "{{message}}"
       }
     }

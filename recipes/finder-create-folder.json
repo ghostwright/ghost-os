@@ -29,7 +29,7 @@
       "note": "Wait for the folder naming dialog to appear",
       "params": {
         "condition": "elementExists",
-        "timeout": 2,
+        "timeout": "2",
         "value": "untitled folder"
       }
     },
@@ -55,7 +55,7 @@
       "note": "Wait for folder to appear in Finder",
       "params": {
         "condition": "elementExists",
-        "timeout": 2,
+        "timeout": "2",
         "value": "{{folder_name}}"
       }
     }
