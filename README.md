@@ -30,6 +30,11 @@ Send emails and download papers. Any app. Any workflow.
 
 ![Ghost OS Recipes Demo](demo-recipes.gif)
 
+### Beyond the Browser
+Slack messages, Finder folders — Ghost OS operates native macOS apps, not just browsers.
+
+![Ghost OS Slack + Finder Demo](demo-slack-finder.gif)
+
 ## Install
 
 ```bash
