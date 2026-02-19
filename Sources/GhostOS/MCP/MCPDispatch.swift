@@ -136,36 +136,36 @@ public enum MCPDispatch {
                 )
             }
 
+        // Press, hotkey, scroll are synthetic input tools that send events to the
+        // FRONTMOST app. They need the target app to STAY focused after the tool
+        // returns - the agent will call ghost_focus to restore when ready.
+        // Do NOT wrap these in withFocusRestore, which would steal focus back
+        // before the app processes the event (e.g. Cmd+L needs Chrome to stay
+        // focused while it selects the address bar text).
         case "ghost_press":
             guard let key = str(args, "key") else {
                 return ToolResult(success: false, error: "Missing required parameter: key")
             }
             let modifiers = (args["modifiers"] as? [String])
-            return FocusManager.withFocusRestore {
-                Actions.pressKey(key: key, modifiers: modifiers, appName: str(args, "app"))
-            }
+            return Actions.pressKey(key: key, modifiers: modifiers, appName: str(args, "app"))
 
         case "ghost_hotkey":
             guard let keys = args["keys"] as? [String] else {
                 return ToolResult(success: false, error: "Missing required parameter: keys (array of strings)")
             }
-            return FocusManager.withFocusRestore {
-                Actions.hotkey(keys: keys, appName: str(args, "app"))
-            }
+            return Actions.hotkey(keys: keys, appName: str(args, "app"))
 
         case "ghost_scroll":
             guard let direction = str(args, "direction") else {
                 return ToolResult(success: false, error: "Missing required parameter: direction")
             }
-            return FocusManager.withFocusRestore {
-                Actions.scroll(
-                    direction: direction,
-                    amount: int(args, "amount"),
-                    appName: str(args, "app"),
-                    x: double(args, "x"),
-                    y: double(args, "y")
-                )
-            }
+            return Actions.scroll(
+                direction: direction,
+                amount: int(args, "amount"),
+                appName: str(args, "app"),
+                x: double(args, "x"),
+                y: double(args, "y")
+            )
 
         case "ghost_focus":
             guard let app = str(args, "app") else {

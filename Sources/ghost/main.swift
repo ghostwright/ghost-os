@@ -13,6 +13,13 @@ import ApplicationServices
 import Foundation
 import GhostOS
 
+// Force CoreGraphics server connection initialization.
+// ScreenCaptureKit requires a CG connection to the window server.
+// Without this, the process crashes with CGS_REQUIRE_INIT when
+// trying to capture screenshots. v1 got this automatically through
+// its @MainActor async entry point; v2's synchronous main needs it explicit.
+_ = CGMainDisplayID()
+
 let args = CommandLine.arguments.dropFirst()
 let command = args.first ?? "help"
 
