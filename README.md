@@ -22,7 +22,13 @@ Agent:   ghost_run recipe:"gmail-send" params:{recipient, subject, body}
          → Compose opens, fields fill, email sends. Done.
 ```
 
+### Setup
 ![Ghost OS Setup Demo](demo.gif)
+
+### Recipes in Action
+Send emails and download papers. Any app. Any workflow.
+
+![Ghost OS Recipes Demo](demo-recipes.gif)
 
 ## Install
 
