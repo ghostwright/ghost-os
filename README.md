@@ -70,40 +70,28 @@ ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":
 
 ## 20 Tools
 
-**Perception**
-
-| Tool | Purpose |
-|------|---------|
-| `ghost_context` | Current app, URL, focused element, interactive elements |
-| `ghost_state` | All running apps and their windows |
-| `ghost_find` | Find elements by name, role, or DOM id |
-| `ghost_read` | Read text content from any app |
-| `ghost_inspect` | Full metadata about one element |
-| `ghost_element_at` | Identify element at screen coordinates |
-| `ghost_screenshot` | Visual capture when you need it |
-
-**Action**
-
-| Tool | Purpose |
-|------|---------|
-| `ghost_click` | Click elements or coordinates |
-| `ghost_type` | Type into fields by name |
-| `ghost_press` | Press keys (Return, Tab, Escape) |
-| `ghost_hotkey` | Key combos (Cmd+L, Cmd+Return) |
-| `ghost_scroll` | Scroll in any direction |
-| `ghost_focus` | Bring an app to the front |
-| `ghost_window` | Minimize, maximize, move, resize |
-| `ghost_wait` | Wait for conditions (URL change, element appear) |
-
-**Recipes**
-
-| Tool | Purpose |
-|------|---------|
-| `ghost_recipes` | List available recipes |
-| `ghost_run` | Execute a recipe with parameters |
-| `ghost_recipe_show` | View recipe steps |
-| `ghost_recipe_save` | Save a new recipe |
-| `ghost_recipe_delete` | Remove a recipe |
+| | Tool | Purpose |
+|---|------|---------|
+| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_context` | Current app, URL, focused element, interactive elements |
+| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_state` | All running apps and their windows |
+| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_find` | Find elements by name, role, or DOM id |
+| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_read` | Read text content from any app |
+| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_inspect` | Full metadata about one element |
+| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_element_at` | Identify element at screen coordinates |
+| ![See](https://img.shields.io/badge/-See-4A90D9) | `ghost_screenshot` | Visual capture when you need it |
+| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_click` | Click elements or coordinates |
+| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_type` | Type into fields by name |
+| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_press` | Press keys (Return, Tab, Escape) |
+| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_hotkey` | Key combos (Cmd+L, Cmd+Return) |
+| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_scroll` | Scroll in any direction |
+| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_focus` | Bring an app to the front |
+| ![Act](https://img.shields.io/badge/-Act-2EA44F) | `ghost_window` | Minimize, maximize, move, resize |
+| ![Wait](https://img.shields.io/badge/-Wait-E8A317) | `ghost_wait` | Wait for conditions (URL change, element appear) |
+| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_recipes` | List available recipes |
+| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_run` | Execute a recipe with parameters |
+| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_recipe_show` | View recipe steps |
+| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_recipe_save` | Save a new recipe |
+| ![Recipe](https://img.shields.io/badge/-Recipe-9B59B6) | `ghost_recipe_delete` | Remove a recipe |
 
 ## Diagnostics
 
