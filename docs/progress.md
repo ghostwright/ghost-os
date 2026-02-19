@@ -1,57 +1,38 @@
 # Ghost OS v2 Progress
 
-## Current Phase: 5 (Recipes) NEXT / Phases 0-4 COMPLETE
+## Current State: Phases 0-4 COMPLETE, bug fixes applied, ready for testing
 
-## Phase 0: Project Setup - COMPLETE
-- Package.swift, directory structure, Logger, Types, LocatorBuilder
-- MCPServer with Content-Length/NDJSON auto-detection, stdout capture
-- 14 Swift files, compiles cleanly
+## Architecture Changes (from live testing feedback)
 
-## Phase 1: MCP Server Shell - COMPLETE
-- MCPServer reads/writes JSON-RPC, handles initialize/tools/list/tools/call
-- All 20 tool definitions in MCPTools.swift
-- MCPDispatch routes to module functions
-- Tested: initialize returns instructions, tools/list returns 20 tools
+After live testing revealed 8 bugs, the action module was rewritten from scratch:
 
-## Phase 2: Perception - COMPLETE
-- ghost_context: app, window, URL, focused element, interactive elements list
-- ghost_state: running apps with windows
-- ghost_find: AXorcist search + semantic depth tunneling fallback, DOM ID search
-- ghost_read: text extraction with semantic depth tunneling (zero-cost container traversal)
-- ghost_inspect: full element metadata (role, position, actions, DOM id, editable, etc.)
-- ghost_element_at: screen coordinate to element bridge
-- ghost_screenshot: ScreenCaptureKit with RunLoop-based sync bridge
+**Old approach (broken):** Called `element.press()`, `element.click()`, `element.typeText()`
+directly on Element objects. This bypassed AXorcist's focus management, action validation,
+and element resolution.
 
-## Phase 3: Core Actions - COMPLETE
-- ghost_click: AX-native press first, synthetic click fallback, coordinate mode
-- ghost_type: AX setValue first, synthetic typeText fallback, readback verification
-- ghost_press: single key with optional modifiers, SpecialKey mapping
-- ghost_hotkey: key combos with clearModifierFlags after every call
-- ghost_scroll: directional scroll with coordinate support
-- ghost_focus: app/window focus with verification
-- All action tools wrapped in FocusManager.withFocusRestore
+**New approach (correct):** Uses AXorcist's COMMAND SYSTEM:
+- `ghost_click` -> `PerformActionCommand` with Locator -> AXorcist handles finding + AXPress
+- `ghost_type` -> `SetFocusedValueCommand` with Locator -> AXorcist handles focus + setValue
+- Synthetic fallback only when AXorcist's AX-native path returns error
 
-## Phase 4: Window/Wait - COMPLETE
-- ghost_window: minimize, maximize, close, restore, move, resize, list
-- ghost_wait: polling for urlContains, titleContains, elementExists, elementGone, urlChanged, titleChanged
+**Screenshot bridge (fixed):** Changed from `Task.detached` (crashed with CGS_REQUIRE_INIT)
+to `Task {}` + `RunLoop.main.run(until:)` spinning (v1's proven pattern).
 
-## Phase 6 (partial): Agent Instructions
-- GHOST-MCP.md written with rules, patterns, and tool reference
-- Served via MCP initialize response
+## Bug Fix Summary
 
-## Key Numbers
-- 14 Swift source files
-- ~3,000 lines total
-- 20 MCP tools all implemented
-- 2 commits on main
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| elementExists false positives | findElement matched stringValue (terminal scrollback) | Custom computedName-only search |
+| Screenshot crash | Task.detached ran on non-CG thread | Task {} + RunLoop.main spinning |
+| Screenshot too large | PNG, text-wrapped JSON | JPEG 70% + MCP image content type |
+| Type readback wrong | Reading wrong element / only trying value() | Multi-strategy readback |
+| Click never AX-native | Used element.press() not AXorcist command | PerformActionCommand |
+| Type into broken | Didn't use AXorcist's setValue flow | SetFocusedValueCommand |
+| Focus flaky | Single attempt, short wait | Retry with longer waits |
+| Find duplicates | Chrome multiple windows | Deduplicate by element hash |
 
-## What's Next: Phase 5 - Recipe System
-- RecipeEngine: step-by-step execution with Locator targets
-- ghost_run: execute recipes with parameter substitution
-- Convert gmail-send recipe to v2 format
-- Create bundled recipes: open-url, slack-message, finder-new-folder
+## What's Next
 
-## Known Issues
-- ghost_type `into` parameter: the nil-coalescing logic for optional `into` vs `domId` is unnecessarily complex
-- Screenshot sync bridge uses RunLoop spinning (works but could be cleaner)
-- No timeout wrapper on individual AX calls yet
+1. **Live test** the rebuilt action module
+2. **Phase 5**: RecipeEngine implementation
+3. **Phase 7**: Testing against 10 apps
