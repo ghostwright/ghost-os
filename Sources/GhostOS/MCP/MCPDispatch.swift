@@ -17,8 +17,41 @@ public enum MCPDispatch {
         let args = params["arguments"] as? [String: Any] ?? [:]
         Log.info("Tool call: \(toolName)")
 
+        // Screenshot returns MCP image content directly (not text-wrapped JSON)
+        if toolName == "ghost_screenshot" {
+            return handleScreenshot(args)
+        }
+
         let result = dispatch(tool: toolName, args: args)
         return formatResult(result, toolName: toolName)
+    }
+
+    /// Screenshot handler returns MCP image content type for inline display.
+    private static func handleScreenshot(_ args: [String: Any]) -> [String: Any] {
+        let result = Perception.screenshot(
+            appName: str(args, "app"),
+            fullResolution: bool(args, "full_resolution") ?? false
+        )
+
+        guard result.success,
+              let data = result.data,
+              let base64 = data["image"] as? String
+        else {
+            return formatResult(result, toolName: "ghost_screenshot")
+        }
+
+        // Return as MCP image content for inline display in Claude Code
+        let mimeType = data["mime_type"] as? String ?? "image/png"
+        return [
+            "content": [
+                [
+                    "type": "image",
+                    "data": base64,
+                    "mimeType": mimeType,
+                ] as [String: Any],
+            ],
+            "isError": false,
+        ]
     }
 
     // MARK: - Dispatch

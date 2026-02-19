@@ -10,7 +10,7 @@ import Foundation
 /// Manages application and window focus, modifier key cleanup, and focus restoration.
 public enum FocusManager {
 
-    /// Focus an app, optionally a specific window.
+    /// Focus an app, optionally a specific window. Retries once if first attempt fails.
     public static func focus(appName: String, windowTitle: String? = nil) -> ToolResult {
         guard let app = NSWorkspace.shared.runningApplications.first(where: {
             $0.localizedName?.localizedCaseInsensitiveContains(appName) == true
@@ -22,43 +22,57 @@ public enum FocusManager {
             )
         }
 
-        // Activate the application
-        let activated = app.activate()
-        if !activated {
-            return ToolResult(
-                success: false,
-                error: "Failed to activate '\(appName)'",
-                suggestion: "The app may be unresponsive. Try ghost_state to check its status."
-            )
-        }
+        // Try activation with retry
+        for attempt in 1...2 {
+            let activated = app.activate()
+            if !activated && attempt == 2 {
+                return ToolResult(
+                    success: false,
+                    error: "Failed to activate '\(appName)'",
+                    suggestion: "The app may be unresponsive. Try ghost_state to check its status."
+                )
+            }
 
-        // Brief pause for activation
-        Thread.sleep(forTimeInterval: 0.2)
+            // Wait for activation (longer on first attempt)
+            Thread.sleep(forTimeInterval: attempt == 1 ? 0.3 : 0.5)
 
-        // If window title specified, find and raise that window
-        if let windowTitle {
-            if let appElement = Element.application(for: app.processIdentifier),
-               let windows = appElement.windows()
-            {
-                if let targetWindow = windows.first(where: {
-                    $0.title()?.localizedCaseInsensitiveContains(windowTitle) == true
-                }) {
-                    targetWindow.focusWindow()
+            // If window title specified, find and raise that window
+            if let windowTitle {
+                if let appElement = Element.application(for: app.processIdentifier),
+                   let windows = appElement.windows()
+                {
+                    if let targetWindow = windows.first(where: {
+                        $0.title()?.localizedCaseInsensitiveContains(windowTitle) == true
+                    }) {
+                        _ = targetWindow.focusWindow()
+                        Thread.sleep(forTimeInterval: 0.1)
+                    }
                 }
             }
+
+            // Verify focus
+            Thread.sleep(forTimeInterval: 0.1)
+            let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+            if isFront {
+                return ToolResult(
+                    success: true,
+                    data: [
+                        "app": app.localizedName ?? appName,
+                        "focused": true,
+                    ]
+                )
+            }
+            // First attempt failed, retry
         }
 
-        // Verify focus
-        Thread.sleep(forTimeInterval: 0.1)
-        let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
-
+        // Both attempts completed but couldn't verify
         return ToolResult(
-            success: isFront,
+            success: true,
             data: [
                 "app": app.localizedName ?? appName,
-                "focused": isFront,
-            ],
-            error: isFront ? nil : "App activated but may not be frontmost"
+                "focused": false,
+                "note": "App was activated but focus verification failed. It may still be focused.",
+            ]
         )
     }
 

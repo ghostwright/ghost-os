@@ -54,15 +54,23 @@ public enum ScreenCapture {
         let config = SCStreamConfiguration()
         config.showsCursor = false
 
+        // On Retina displays, SCWindow.frame is in points but capture is in pixels.
+        // We need to account for the backing scale factor to get the right pixel dimensions.
+        // Use scaleFactor of 1 for our max-width calculation to ensure we downscale properly.
         if fullResolution {
-            config.width = Int(window.frame.width)
-            config.height = Int(window.frame.height)
+            // Native pixel resolution (2x on Retina)
+            config.width = Int(window.frame.width * 2)
+            config.height = Int(window.frame.height * 2)
         } else {
-            let maxWidth = 1280
+            // Downscale to max 1280px width in POINTS (not pixels)
+            // This produces a 1280px wide image regardless of Retina scaling
+            let maxWidth: CGFloat = 1280
             let aspect = window.frame.height / window.frame.width
-            let captureWidth = min(maxWidth, Int(window.frame.width))
-            config.width = captureWidth
-            config.height = Int(CGFloat(captureWidth) * aspect)
+            let captureWidth = min(maxWidth, window.frame.width)
+            config.width = Int(captureWidth)
+            config.height = Int(captureWidth * aspect)
+            // Setting scalesToFit ensures the capture fits our dimensions
+            config.scalesToFit = true
         }
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
@@ -77,13 +85,26 @@ public enum ScreenCapture {
         }
 
         let bitmap = NSBitmapImageRep(cgImage: cgImage)
-        guard let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
+
+        // Use JPEG for downscaled screenshots (much smaller than PNG: ~50-100KB vs 300-500KB)
+        // Use PNG only for full resolution (lossless for reading small text)
+        let imageData: Data?
+        let mimeType: String
+        if fullResolution {
+            imageData = bitmap.representation(using: .png, properties: [:])
+            mimeType = "image/png"
+        } else {
+            imageData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7])
+            mimeType = "image/jpeg"
+        }
+        guard let imageData else { return nil }
 
         return ScreenshotResult(
-            base64PNG: pngData.base64EncodedString(),
+            base64PNG: imageData.base64EncodedString(),
             width: cgImage.width,
             height: cgImage.height,
-            windowTitle: window.title
+            windowTitle: window.title,
+            mimeType: mimeType
         )
     }
 }

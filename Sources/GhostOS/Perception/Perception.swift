@@ -144,8 +144,18 @@ public enum Perception {
             results = semanticDepthSearch(query: query, role: role, in: searchRoot, maxDepth: maxDepth)
         }
 
+        // Deduplicate by element identity (Chrome multiple windows cause duplicates)
+        var seen = Set<Int>()
+        var unique: [Element] = []
+        for el in results {
+            let hash = el.hashValue
+            if seen.insert(hash).inserted {
+                unique.append(el)
+            }
+        }
+
         // Cap results to avoid huge responses
-        let capped = Array(results.prefix(50))
+        let capped = Array(unique.prefix(50))
         let summaries = capped.map { elementSummary($0) }
 
         return ToolResult(
@@ -314,7 +324,7 @@ public enum Perception {
                 "width": result.width,
                 "height": result.height,
                 "window_title": result.windowTitle as Any,
-                "mime_type": "image/png",
+                "mime_type": result.mimeType,
             ]
         )
     }
@@ -522,9 +532,13 @@ public enum Perception {
             info["supported_actions"] = actions
         }
 
-        // Value / text
-        if let value = readValue(from: element) { info["value"] = value }
-        if let selectedText = element.selectedText() { info["selected_text"] = selectedText }
+        // Value / text (truncated to 500 chars to avoid massive output for text areas)
+        if let value = readValue(from: element) {
+            info["value"] = value.count > 500 ? String(value.prefix(500)) + "... (\(value.count) chars total)" : value
+        }
+        if let selectedText = element.selectedText() {
+            info["selected_text"] = selectedText.count > 500 ? String(selectedText.prefix(500)) + "..." : selectedText
+        }
         if let placeholder = element.placeholderValue() { info["placeholder"] = placeholder }
 
         // Children count

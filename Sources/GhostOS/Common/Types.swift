@@ -81,12 +81,14 @@ public struct ScreenshotResult: Sendable {
     public let width: Int
     public let height: Int
     public let windowTitle: String?
+    public let mimeType: String
 
-    public init(base64PNG: String, width: Int, height: Int, windowTitle: String? = nil) {
+    public init(base64PNG: String, width: Int, height: Int, windowTitle: String? = nil, mimeType: String = "image/png") {
         self.base64PNG = base64PNG
         self.width = width
         self.height = height
         self.windowTitle = windowTitle
+        self.mimeType = mimeType
     }
 }
 

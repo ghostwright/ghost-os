@@ -120,7 +120,9 @@ public enum Actions {
                         ]
                     )
                 }
-                // AX-native silently failed (common in Chrome), fall through to synthetic
+                // AX-native returned false (common in Chrome where performAction
+                // is accepted but doesn't actually trigger the click)
+                Log.info("AX-native press returned false for '\(element.computedName() ?? "?")' - falling back to synthetic")
             }
         }
 
@@ -159,9 +161,10 @@ public enum Actions {
         appName: String?,
         clear: Bool
     ) -> ToolResult {
-        // If target field specified, find it
-        if let into = into ?? domId.map({ _ in nil as String? }) ?? nil {
-            // Find and type into specific field
+        // If target field specified (via `into` or `dom_id`), find and type into it
+        if into != nil || domId != nil {
+            let fieldName = into ?? domId ?? ""
+
             let searchRoot: Element
             if let appName {
                 guard let appElement = Perception.appElement(for: appName) else {
@@ -180,23 +183,24 @@ public enum Actions {
             let element: Element?
             if let domId {
                 element = findByDOMId(domId, in: searchRoot)
-            } else {
+            } else if let into {
                 var options = ElementSearchOptions()
                 options.maxDepth = GhostConstants.semanticDepthBudget
                 element = searchRoot.findElement(matching: into, options: options)
+            } else {
+                element = nil
             }
 
             guard let element else {
                 return ToolResult(
                     success: false,
-                    error: "Field '\(into)' not found",
+                    error: "Field '\(fieldName)' not found",
                     suggestion: "Use ghost_find with role:'AXTextField' to see available text fields"
                 )
             }
 
             // Try AX-native setValue (focus + set value, no need for app focus)
             if element.isAttributeSettable(named: "AXValue") {
-                // Focus the element
                 _ = element.setValue(true, forAttribute: "AXFocused")
                 Thread.sleep(forTimeInterval: 0.1)
 
@@ -207,15 +211,14 @@ public enum Actions {
 
                 let success = element.setValue(text, forAttribute: "AXValue")
                 if success {
-                    // Readback verification
-                    let readback = Perception.readValue(from: element)
+                    let readback = readbackValue(from: element)
                     return ToolResult(
                         success: true,
                         data: [
                             "method": "ax-native",
-                            "field": into,
+                            "field": fieldName,
                             "typed": text,
-                            "readback": readback ?? "(unreadable)",
+                            "readback": readback,
                         ]
                     )
                 }
@@ -229,19 +232,19 @@ public enum Actions {
 
             do {
                 try element.typeText(text, delay: 0.005, clearFirst: clear)
-                Thread.sleep(forTimeInterval: 0.1)
-                let readback = Perception.readValue(from: element)
+                Thread.sleep(forTimeInterval: 0.15)
+                let readback = readbackValue(from: element)
                 return ToolResult(
                     success: true,
                     data: [
                         "method": "synthetic",
-                        "field": into,
+                        "field": fieldName,
                         "typed": text,
-                        "readback": readback ?? "(unreadable)",
+                        "readback": readback,
                     ]
                 )
             } catch {
-                return ToolResult(success: false, error: "Type into '\(into)' failed: \(error)")
+                return ToolResult(success: false, error: "Type into '\(fieldName)' failed: \(error)")
             }
         }
 
@@ -490,6 +493,37 @@ public enum Actions {
             }
         }
         return nil
+    }
+
+    /// Read back the value of an element after typing. Tries multiple approaches
+    /// since Chrome fields often don't return AXValue through the standard API.
+    private static func readbackValue(from element: Element) -> String {
+        // Try Perception's readValue (handles Chrome AXStaticText bug)
+        if let value = Perception.readValue(from: element) {
+            return value.count > 200 ? String(value.prefix(200)) + "..." : value
+        }
+
+        // Try reading the focused element's value instead (the field we typed into
+        // might have wrapped our text in a child element)
+        if let parent = element.parent() {
+            if let focusedChild = parent.focusedUIElement() {
+                if let value = Perception.readValue(from: focusedChild) {
+                    return value.count > 200 ? String(value.prefix(200)) + "..." : value
+                }
+            }
+        }
+
+        // Try title as fallback (some fields expose typed text as title)
+        if let title = element.title(), !title.isEmpty {
+            return title.count > 200 ? String(title.prefix(200)) + "..." : title
+        }
+
+        // Try computedName which aggregates multiple sources
+        if let name = element.computedName(), !name.isEmpty {
+            return name.count > 200 ? String(name.prefix(200)) + "..." : name
+        }
+
+        return "(verification unavailable for this field type)"
     }
 
     /// Map key names to AXorcist SpecialKey enum.
