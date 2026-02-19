@@ -1,0 +1,135 @@
+{
+  "app" : "Google Chrome",
+  "description" : "Search arXiv for papers and download the first result as PDF. Navigates to arxiv.org, searches for the query, clicks the first PDF link, waits for the PDF viewer toolbar to fully load, then saves via the Download button. PDF saves to Desktop by default.",
+  "name" : "arxiv-download",
+  "on_failure" : "stop",
+  "params" : {
+    "query" : {
+      "description" : "Search terms (e.g. 'large language model agents')",
+      "required" : true,
+      "type" : "string"
+    }
+  },
+  "preconditions" : {
+    "app_running" : "Google Chrome"
+  },
+  "schema_version" : 2,
+  "steps" : [
+    {
+      "action" : "hotkey",
+      "id" : 1,
+      "note" : "Select address bar",
+      "params" : {
+        "keys" : "cmd,l"
+      }
+    },
+    {
+      "action" : "type",
+      "id" : 2,
+      "note" : "Type arXiv search URL",
+      "params" : {
+        "text" : "https:\/\/arxiv.org\/search\/"
+      }
+    },
+    {
+      "action" : "press",
+      "id" : 3,
+      "note" : "Navigate to arXiv and wait for search field",
+      "params" : {
+        "key" : "return"
+      },
+      "wait_after" : {
+        "condition" : "elementExists",
+        "timeout" : 10,
+        "value" : "Search term or terms"
+      }
+    },
+    {
+      "action" : "type",
+      "id" : 4,
+      "note" : "Type search query into search field",
+      "params" : {
+        "text" : "{{query}}"
+      },
+      "target" : {
+        "computedNameContains" : "Search term or terms",
+        "criteria" : [
+          {
+            "attribute" : "AXRole",
+            "value" : "AXTextField"
+          }
+        ]
+      }
+    },
+    {
+      "action" : "press",
+      "id" : 5,
+      "note" : "Submit search and wait for results",
+      "params" : {
+        "key" : "return"
+      },
+      "wait_after" : {
+        "condition" : "urlContains",
+        "timeout" : 15,
+        "value" : "query="
+      }
+    },
+    {
+      "action" : "click",
+      "id" : 6,
+      "note" : "Click first PDF link and wait for PDF viewer toolbar to fully load",
+      "target" : {
+        "computedNameContains" : "pdf",
+        "criteria" : [
+          {
+            "attribute" : "AXRole",
+            "value" : "AXLink"
+          }
+        ]
+      },
+      "wait_after" : {
+        "condition" : "elementExists",
+        "timeout" : 15,
+        "value" : "Rotate counterclockwise"
+      }
+    },
+    {
+      "action" : "click",
+      "id" : 7,
+      "note" : "Click Download button and wait for Save dialog text field",
+      "target" : {
+        "computedNameContains" : "Download",
+        "criteria" : [
+          {
+            "attribute" : "AXRole",
+            "value" : "AXButton"
+          }
+        ]
+      },
+      "wait_after" : {
+        "condition" : "elementExists",
+        "timeout" : 5,
+        "value" : "saveAsNameTextField"
+      }
+    },
+    {
+      "action" : "click",
+      "id" : 8,
+      "note" : "Click Save button and wait for dialog to dismiss",
+      "target" : {
+        "computedNameContains" : "Save",
+        "criteria" : [
+          {
+            "attribute" : "AXRole",
+            "value" : "AXButton"
+          }
+        ]
+      },
+      "wait_after" : {
+        "condition" : "elementGone",
+        "timeout" : 5,
+        "value" : "saveAsNameTextField"
+      }
+    }
+  ]
+}
