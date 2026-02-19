@@ -54,8 +54,6 @@ public enum ScreenCapture {
         let config = SCStreamConfiguration()
         config.showsCursor = false
 
-        // v1's proven configuration - no scalesToFit, no Retina assumptions.
-        // These exact settings worked 100+ times in v1 without crashes.
         if fullResolution {
             config.width = Int(window.frame.width)
             config.height = Int(window.frame.height)
@@ -66,6 +64,10 @@ public enum ScreenCapture {
             config.width = captureWidth
             config.height = Int(CGFloat(captureWidth) * aspect)
         }
+        // scalesToFit tells ScreenCaptureKit to fit the capture into the
+        // requested dimensions. Without it, dimension mismatches between
+        // points and pixels (Retina displays) can crash.
+        config.scalesToFit = true
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let cgImage: CGImage
