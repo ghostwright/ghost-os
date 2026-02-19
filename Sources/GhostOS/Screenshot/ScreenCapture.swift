@@ -82,21 +82,14 @@ public enum ScreenCapture {
 
         let bitmap = NSBitmapImageRep(cgImage: cgImage)
 
-        // Use JPEG for downscaled screenshots (much smaller than PNG: ~50-100KB vs 300-500KB)
-        // Use PNG only for full resolution (lossless for reading small text)
-        let imageData: Data?
-        let mimeType: String
-        if fullResolution {
-            imageData = bitmap.representation(using: .png, properties: [:])
-            mimeType = "image/png"
-        } else {
-            imageData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7])
-            mimeType = "image/jpeg"
-        }
-        guard let imageData else { return nil }
+        // PNG is safe for all CGImage formats (including alpha channel from
+        // ScreenCaptureKit). JPEG can crash on RGBA images. v1 used PNG and
+        // it worked reliably. Size is managed by the 1280px downscale.
+        guard let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        let mimeType = "image/png"
 
         return ScreenshotResult(
-            base64PNG: imageData.base64EncodedString(),
+            base64PNG: pngData.base64EncodedString(),
             width: cgImage.width,
             height: cgImage.height,
             windowTitle: window.title,
