@@ -615,16 +615,20 @@ public enum Actions {
 
         if score > 0 {
             // Bonus for editable/interactive roles (the whole point of 'into')
+            // High bonus (+50) ensures editable fields always beat links/buttons
             if editableRoles.contains(role) {
-                score += 30
+                score += 50
             }
-            // Bonus for any interactive role
-            let interactiveRoles: Set<String> = [
-                "AXButton", "AXLink", "AXCheckBox", "AXRadioButton",
-                "AXPopUpButton", "AXMenuButton",
-            ]
-            if interactiveRoles.contains(role) {
-                score += 10
+
+            // Bonus for being on-screen (visible) - helps when multiple
+            // compose windows exist (old draft vs current compose)
+            if let pos = element.position(), let size = element.size() {
+                let onScreen = NSScreen.screens.contains { screen in
+                    screen.frame.intersects(CGRect(origin: pos, size: size))
+                }
+                if onScreen && size.width > 1 && size.height > 1 {
+                    score += 20
+                }
             }
 
             // Only include if score is reasonable
