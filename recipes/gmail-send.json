@@ -59,6 +59,7 @@
             "id": 4,
             "action": "type",
             "target": {
+                "criteria": [],
                 "computedNameContains": "Subject"
             },
             "params": {"text": "{{subject}}"},
