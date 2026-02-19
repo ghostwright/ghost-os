@@ -232,7 +232,26 @@ public enum MCPDispatch {
             return ToolResult(success: true, data: ["recipes": summaries, "count": summaries.count])
 
         case "ghost_run":
-            return ToolResult(success: true, data: ["note": "ghost_run: Phase 5 implementation"])
+            guard let recipeName = str(args, "recipe") else {
+                return ToolResult(success: false, error: "Missing required parameter: recipe")
+            }
+            guard let recipe = RecipeStore.loadRecipe(named: recipeName) else {
+                return ToolResult(
+                    success: false,
+                    error: "Recipe '\(recipeName)' not found",
+                    suggestion: "Use ghost_recipes to list available recipes"
+                )
+            }
+            // Parse params from the MCP arguments
+            let recipeParams: [String: String]
+            if let paramsObj = args["params"] as? [String: Any] {
+                recipeParams = paramsObj.reduce(into: [:]) { result, pair in
+                    result[pair.key] = "\(pair.value)"
+                }
+            } else {
+                recipeParams = [:]
+            }
+            return RecipeEngine.run(recipe: recipe, params: recipeParams)
 
         case "ghost_recipe_show":
             guard let name = str(args, "name") else {

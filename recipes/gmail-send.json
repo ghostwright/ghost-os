@@ -1,0 +1,92 @@
+{
+    "schema_version": 2,
+    "name": "gmail-send",
+    "description": "Send an email via Gmail in Chrome. Navigate to the correct Gmail account first (mail.google.com/mail/u/0/, u/1/, etc).",
+    "app": "Google Chrome",
+    "params": {
+        "recipient": {
+            "type": "string",
+            "description": "Email address of recipient",
+            "required": true
+        },
+        "subject": {
+            "type": "string",
+            "description": "Email subject line",
+            "required": true
+        },
+        "body": {
+            "type": "string",
+            "description": "Email body text",
+            "required": true
+        }
+    },
+    "preconditions": {
+        "app_running": "Google Chrome",
+        "url_contains": "mail.google.com"
+    },
+    "steps": [
+        {
+            "id": 1,
+            "action": "click",
+            "target": {
+                "criteria": [{"attribute": "AXRole", "value": "AXButton"}],
+                "computedNameContains": "Compose"
+            },
+            "wait_after": {
+                "condition": "elementExists",
+                "value": "To recipients",
+                "timeout": 5
+            },
+            "note": "Open compose window"
+        },
+        {
+            "id": 2,
+            "action": "type",
+            "target": {
+                "criteria": [{"attribute": "AXRole", "value": "AXComboBox"}],
+                "computedNameContains": "To recipients"
+            },
+            "params": {"text": "{{recipient}}"},
+            "note": "Enter recipient email"
+        },
+        {
+            "id": 3,
+            "action": "press",
+            "params": {"key": "tab"},
+            "note": "Confirm autocomplete and move to Subject"
+        },
+        {
+            "id": 4,
+            "action": "type",
+            "target": {
+                "computedNameContains": "Subject"
+            },
+            "params": {"text": "{{subject}}"},
+            "note": "Enter subject line"
+        },
+        {
+            "id": 5,
+            "action": "press",
+            "params": {"key": "tab"},
+            "note": "Move to body"
+        },
+        {
+            "id": 6,
+            "action": "type",
+            "params": {"text": "{{body}}"},
+            "note": "Enter email body at focus"
+        },
+        {
+            "id": 7,
+            "action": "hotkey",
+            "params": {"keys": "cmd,return"},
+            "wait_after": {
+                "condition": "elementGone",
+                "value": "Send",
+                "timeout": 10
+            },
+            "note": "Send email with Cmd+Return"
+        }
+    ],
+    "on_failure": "stop"
+}
