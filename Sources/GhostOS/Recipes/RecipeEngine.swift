@@ -128,9 +128,10 @@ public enum RecipeEngine {
                 )
             }
 
-            // Handle wait_after condition
+            // Handle wait_after condition (substitute {{params}} in value)
             if let waitAfter = step.waitAfter {
-                let waitResult = handleWaitAfter(waitAfter, appName: recipe.app)
+                let resolvedWaitAfter = substituteWaitAfter(waitAfter, with: params)
+                let waitResult = handleWaitAfter(resolvedWaitAfter, appName: recipe.app)
                 if !waitResult.success {
                     let totalDuration = Int(Date().timeIntervalSince(startTime) * 1000)
 
@@ -226,6 +227,23 @@ public enum RecipeEngine {
             resolved[key] = result
         }
         return resolved
+    }
+
+    /// Replace {{param}} placeholders in a wait_after condition's value.
+    private static func substituteWaitAfter(
+        _ waitAfter: RecipeWaitCondition,
+        with values: [String: String]
+    ) -> RecipeWaitCondition {
+        guard var value = waitAfter.value else { return waitAfter }
+        for (paramName, paramValue) in values {
+            value = value.replacingOccurrences(of: "{{\(paramName)}}", with: paramValue)
+        }
+        return RecipeWaitCondition(
+            condition: waitAfter.condition,
+            target: waitAfter.target,
+            value: value,
+            timeout: waitAfter.timeout
+        )
     }
 
     // MARK: - Step Execution

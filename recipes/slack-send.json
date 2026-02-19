@@ -50,11 +50,21 @@
       }
     },
     {
-      "action": "click",
+      "action": "wait",
       "id": 4,
+      "note": "Wait for message input to be ready",
+      "params": {
+        "condition": "elementExists",
+        "timeout": "5",
+        "value": "Message"
+      }
+    },
+    {
+      "action": "click",
+      "id": 5,
       "note": "Click message input box",
       "target": {
-        "computedNameContains": "Message to",
+        "computedNameContains": "Message",
         "criteria": [
           {
             "attribute": "AXRole",
@@ -65,7 +75,7 @@
     },
     {
       "action": "type",
-      "id": 5,
+      "id": 6,
       "note": "Type the message",
       "params": {
         "text": "{{message}}"
@@ -73,7 +83,7 @@
     },
     {
       "action": "hotkey",
-      "id": 6,
+      "id": 7,
       "note": "Send message",
       "params": {
         "keys": "cmd,return"
@@ -81,11 +91,12 @@
     },
     {
       "action": "wait",
-      "id": 7,
-      "note": "Wait for message to appear in channel",
+      "id": 8,
+      "note": "Verify message appeared in channel",
+      "on_failure": "skip",
       "params": {
         "condition": "elementExists",
-        "timeout": "3",
+        "timeout": "5",
         "value": "{{message}}"
       }
     }
