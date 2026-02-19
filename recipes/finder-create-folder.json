@@ -1,0 +1,63 @@
+{
+  "app": "Finder",
+  "description": "Create a new folder on the Desktop or in the current Finder window. Uses the standard Cmd+Shift+N shortcut.",
+  "name": "finder-create-folder",
+  "on_failure": "stop",
+  "params": {
+    "folder_name": {
+      "description": "Name for the new folder, e.g. 'ghost-os-demo'",
+      "required": true,
+      "type": "string"
+    }
+  },
+  "preconditions": {
+    "app_running": "Finder"
+  },
+  "schema_version": 2,
+  "steps": [
+    {
+      "action": "hotkey",
+      "id": 1,
+      "note": "Open new folder dialog (standard macOS shortcut)",
+      "params": {
+        "keys": "cmd,shift,n"
+      }
+    },
+    {
+      "action": "wait",
+      "id": 2,
+      "note": "Wait for the folder naming dialog to appear",
+      "params": {
+        "condition": "elementExists",
+        "timeout": 2,
+        "value": "untitled folder"
+      }
+    },
+    {
+      "action": "type",
+      "id": 3,
+      "note": "Type the folder name",
+      "params": {
+        "text": "{{folder_name}}"
+      }
+    },
+    {
+      "action": "press",
+      "id": 4,
+      "note": "Confirm and create the folder",
+      "params": {
+        "key": "return"
+      }
+    },
+    {
+      "action": "wait",
+      "id": 5,
+      "note": "Wait for folder to appear in Finder",
+      "params": {
+        "condition": "elementExists",
+        "timeout": 2,
+        "value": "{{folder_name}}"
+      }
+    }
+  ]
+}
