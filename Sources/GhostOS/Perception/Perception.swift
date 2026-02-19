@@ -532,12 +532,27 @@ public enum Perception {
             info["supported_actions"] = actions
         }
 
-        // Value / text (truncated to 500 chars to avoid massive output for text areas)
-        if let value = readValue(from: element) {
-            info["value"] = value.count > 500 ? String(value.prefix(500)) + "... (\(value.count) chars total)" : value
+        // Value / text - skip entirely for AXTextArea (terminal scrollback can be 100K+)
+        // For other roles, truncate to 500 chars max
+        let elementRole = element.role() ?? ""
+        if elementRole != "AXTextArea" {
+            if let value = readValue(from: element) {
+                if value.count > 500 {
+                    info["value"] = String(value.prefix(500)) + "..."
+                    info["value_length"] = value.count
+                } else {
+                    info["value"] = value
+                }
+            }
+        } else {
+            // For text areas, just report the length
+            if let numChars = element.numberOfCharacters() {
+                info["value_length"] = numChars
+                info["value"] = "(text area with \(numChars) characters - use ghost_read to extract content)"
+            }
         }
         if let selectedText = element.selectedText() {
-            info["selected_text"] = selectedText.count > 500 ? String(selectedText.prefix(500)) + "..." : selectedText
+            info["selected_text"] = selectedText.count > 200 ? String(selectedText.prefix(200)) + "..." : selectedText
         }
         if let placeholder = element.placeholderValue() { info["placeholder"] = placeholder }
 
@@ -764,26 +779,40 @@ public enum Perception {
 
     // MARK: - Sync Screenshot Bridge
 
+    /// Guard against orphan ScreenCaptureKit tasks. If a previous capture is
+    /// still in-flight (hung or slow), we refuse to start another one rather
+    /// than crashing the server.
+    private static var isCapturing = false
+
     /// Bridge ScreenCaptureKit's async API to synchronous using RunLoop spinning.
-    /// This is the v1-proven pattern: fire a Task (inherits MainActor), then spin
-    /// RunLoop.main to process its continuations. Works because we own the main
-    /// thread and RunLoop.main.run(until:) processes events (including Task
-    /// completions) in each iteration.
+    /// ScreenCaptureKit REQUIRES the main thread (CG-initialized). Without
+    /// @MainActor, Task {} may run on a background thread and crash with
+    /// CGS_REQUIRE_INIT.
     private static func captureScreenshotSync(
         pid: pid_t,
         fullResolution: Bool
     ) -> ScreenshotResult? {
-        // Permission check first (fail-fast)
+        // Permission check (fail-fast)
         guard ScreenCapture.hasPermission() else {
             Log.error("Screenshot: Screen Recording permission not granted")
             return nil
         }
 
+        // Guard against concurrent captures (orphan tasks from previous calls)
+        guard !isCapturing else {
+            Log.warn("Screenshot: capture already in-flight, skipping")
+            return nil
+        }
+        isCapturing = true
+        defer { isCapturing = false }
+
         var result: ScreenshotResult?
         var completed = false
 
-        // Fire async capture. Task inherits MainActor context.
-        Task {
+        // Fire async capture on MainActor. ScreenCaptureKit REQUIRES a
+        // CG-initialized thread (the main thread). Without @MainActor,
+        // Task {} runs on a cooperative thread pool and crashes.
+        Task { @MainActor in
             result = await ScreenCapture.captureWindow(
                 pid: pid, fullResolution: fullResolution
             )
@@ -791,12 +820,14 @@ public enum Perception {
         }
 
         // Spin RunLoop.main until async task completes.
-        // Each iteration processes ~10ms of events, giving ScreenCaptureKit
-        // time to make progress. No deadlock because we're running the RunLoop,
-        // not blocking it.
+        // Each 10ms iteration processes events including Task continuations.
         let deadline = Date().addingTimeInterval(10)
         while !completed && Date() < deadline {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+
+        if !completed {
+            Log.error("Screenshot: timed out after 10s")
         }
 
         return result

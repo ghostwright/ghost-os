@@ -83,7 +83,8 @@ public enum Actions {
                 AXCommandEnvelope(commandID: "click", command: .performAction(actionCmd))
             )
 
-            if case .success = response {
+            switch response {
+            case .success:
                 Thread.sleep(forTimeInterval: 0.15)
                 Log.info("AX-native press succeeded for '\(query ?? domId ?? "")'")
                 return ToolResult(
@@ -93,9 +94,10 @@ public enum Actions {
                         "element": query ?? domId ?? "",
                     ]
                 )
+            case let .error(message, code, _):
+                // Log the actual error so we know WHY AX-native failed
+                Log.info("AX-native press failed for '\(query ?? domId ?? "")': [\(code)] \(message) - trying synthetic")
             }
-            // AX-native failed (common for Chrome) - fall through to synthetic
-            Log.info("AX-native press failed for '\(query ?? domId ?? "")' - trying synthetic")
         }
 
         // Strategy 2: Find element position, synthetic click
@@ -153,40 +155,11 @@ public enum Actions {
         appName: String?,
         clear: Bool
     ) -> ToolResult {
-        // If target field specified, use AXorcist's SetFocusedValue command
+        // If target field specified, find it and type into it
         if let fieldName = into ?? domId {
             let locator = LocatorBuilder.build(query: into, domId: domId)
 
-            // Strategy 1: AXorcist's SetFocusedValue (focus + set value atomically)
-            let setCmd = SetFocusedValueCommand(
-                appIdentifier: appName,
-                locator: locator,
-                value: text,
-                maxDepthForSearch: GhostConstants.semanticDepthBudget
-            )
-            let response = AXorcist.shared.runCommand(
-                AXCommandEnvelope(commandID: "type", command: .setFocusedValue(setCmd))
-            )
-
-            if case .success = response {
-                Thread.sleep(forTimeInterval: 0.15)
-
-                // Readback verification via raw AXValue
-                let readback = readbackAfterType(locator: locator, appName: appName)
-                return ToolResult(
-                    success: true,
-                    data: [
-                        "method": "ax-native-setValue",
-                        "field": fieldName,
-                        "typed": text,
-                        "readback": readback,
-                    ]
-                )
-            }
-
-            // Strategy 2: Find element, focus it, type synthetically
-            Log.info("SetFocusedValue failed for '\(fieldName)' - trying synthetic typing")
-
+            // Find the target element FIRST (we need the reference for readback)
             guard let element = findElement(locator: locator, appName: appName) else {
                 return ToolResult(
                     success: false,
@@ -195,15 +168,63 @@ public enum Actions {
                 )
             }
 
-            // Focus the app for synthetic input
+            // Strategy 1: AX-native setValue
+            // Try setting value directly via AX API (works for native fields)
+            if element.isAttributeSettable(named: "AXValue") {
+                // Focus the element first
+                _ = element.setValue(true, forAttribute: "AXFocused")
+                Thread.sleep(forTimeInterval: 0.1)
+
+                if clear {
+                    _ = element.setValue("", forAttribute: "AXValue")
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+
+                let setOk = element.setValue(text, forAttribute: "AXValue")
+                if setOk {
+                    Thread.sleep(forTimeInterval: 0.15)
+
+                    // Verify: read back AXValue to confirm it stuck
+                    let readback = readbackFromElement(element)
+                    let textPrefix = String(text.prefix(20))
+                    if readback.contains(textPrefix) {
+                        // setValue worked and verified
+                        return ToolResult(
+                            success: true,
+                            data: [
+                                "method": "ax-native-setValue",
+                                "field": fieldName,
+                                "typed": text,
+                                "readback": readback,
+                            ]
+                        )
+                    }
+                    // setValue returned true but text didn't stick (Chrome web fields)
+                    Log.info("setValue for '\(fieldName)' returned OK but readback doesn't match - falling back to click-then-type")
+                }
+            }
+
+            // Strategy 2: Click the element to focus it, then type synthetically
+            // This is what v1's ActionExecutor did and it works for Chrome/Gmail
             if let appName {
                 _ = FocusManager.focus(appName: appName)
                 Thread.sleep(forTimeInterval: 0.2)
             }
 
-            // Focus the element via AX
-            _ = element.setValue(true, forAttribute: "AXFocused")
-            Thread.sleep(forTimeInterval: 0.1)
+            // Click the element to put cursor in the field
+            if element.isActionable() {
+                do {
+                    try element.click()
+                    Thread.sleep(forTimeInterval: 0.15)
+                } catch {
+                    // Click failed, try AX focus as fallback
+                    _ = element.setValue(true, forAttribute: "AXFocused")
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+            } else {
+                _ = element.setValue(true, forAttribute: "AXFocused")
+                Thread.sleep(forTimeInterval: 0.1)
+            }
 
             do {
                 if clear {
@@ -213,14 +234,15 @@ public enum Actions {
                     Thread.sleep(forTimeInterval: 0.05)
                     FocusManager.clearModifierFlags()
                 }
-                try element.typeText(text, delay: 0.01)
+                try Element.typeText(text, delay: 0.01)
                 Thread.sleep(forTimeInterval: 0.15)
 
+                // Read back from the same element we found earlier
                 let readback = readbackFromElement(element)
                 return ToolResult(
                     success: true,
                     data: [
-                        "method": "synthetic-typeText",
+                        "method": "click-then-type",
                         "field": fieldName,
                         "typed": text,
                         "readback": readback,
@@ -310,12 +332,13 @@ public enum Actions {
 
         do {
             try Element.performHotkey(keys: keys)
-            // Critical: clear modifier flags immediately after hotkey.
-            // AXorcist's performHotkey sets modifier flags on keyDown/keyUp but doesn't
-            // send explicit modifier keyUp events, leaving Cmd/Shift/Option "stuck".
+            // Wait for the hotkey events to be fully processed by the target app
+            // BEFORE clearing modifier flags. If we clear too early, Cmd might
+            // be released before the Return key event registers with the app.
+            usleep(200_000) // 200ms for app to process the hotkey
+            // Now safe to clear modifier flags
             FocusManager.clearModifierFlags()
-            usleep(10_000) // 10ms for event propagation
-            Thread.sleep(forTimeInterval: 0.1)
+            usleep(10_000) // 10ms for clear event to propagate
             return ToolResult(success: true, data: ["keys": keys])
         } catch {
             FocusManager.clearModifierFlags()
@@ -436,21 +459,9 @@ public enum Actions {
 
     // MARK: - Element Finding (shared helper)
 
-    /// Find an element using AXorcist's query system with semantic depth.
-    /// Uses content-root-first strategy: AXWebArea first, then full app tree.
+    /// Find an element using content-root-first strategy with semantic depth.
+    /// Searches AXWebArea first (in-page elements), then full app tree.
     private static func findElement(locator: Locator, appName: String?) -> Element? {
-        let queryCmd = QueryCommand(
-            appIdentifier: appName,
-            locator: locator,
-            maxDepthForSearch: GhostConstants.semanticDepthBudget
-        )
-        let response = AXorcist.shared.runCommand(
-            AXCommandEnvelope(commandID: "find", command: .query(queryCmd))
-        )
-
-        // AXorcist's query returns the element data but not the Element itself
-        // in the response payload. We need to use findTargetElement directly.
-        // Fall back to manual search.
         guard let appElement = resolveAppElement(appName: appName) else { return nil }
 
         // Content-root-first: search AXWebArea, then full tree
@@ -499,15 +510,6 @@ public enum Actions {
     }
 
     // MARK: - Readback Verification
-
-    /// Read back a field value after SetFocusedValue to verify typing worked.
-    /// Uses raw AXUIElementCopyAttributeValue for Chrome compatibility.
-    private static func readbackAfterType(locator: Locator, appName: String?) -> String {
-        guard let element = findElement(locator: locator, appName: appName) else {
-            return "(element not found for readback)"
-        }
-        return readbackFromElement(element)
-    }
 
     /// Read the current value of an element for verification.
     private static func readbackFromElement(_ element: Element) -> String {
