@@ -1,133 +1,102 @@
-# Ghost OS
+<p align="center">
+  <h1 align="center">👻 Ghost OS</h1>
+  <p align="center">Full computer-use for AI agents. Self-learning. Native. No screenshots required.</p>
+</p>
 
-**AI agents that learn to use your computer, and remember how.**
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-black.svg" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/swift-6.2-orange.svg" alt="Swift 6.2">
+  <img src="https://img.shields.io/badge/MCP-compatible-green.svg" alt="MCP Compatible">
+</p>
 
-Ghost OS is a macOS daemon that lets any AI agent see, understand, and operate every application on your Mac. It reads the accessibility tree (the same structured data screen readers use) instead of taking screenshots. That means it's instant, free, and accurate.
+---
 
-When your agent figures out how to do something (send an email, download a paper, fill out a form), Ghost OS saves it as a recipe. Now any model can replay that workflow perfectly. A frontier model learns it once. A tiny model runs it forever.
+Your AI agent can write code, run tests, search files. But it can't click a button, send an email, or fill out a form. It lives inside a chat box.
 
-<!-- TODO: Add demo GIF here
-Record: Split screen with Chrome (left) and Terminal (right).
-Run: ghost_run gmail-send with params.
-Show: the compose window opening, fields filling, email sending.
-Convert to GIF: ffmpeg -i demo.mov -vf "fps=10,scale=1280:-1" demo.gif
-Or use: https://gifcap.dev for screen recording directly to GIF
+Ghost OS changes that. One install, and any AI agent can see and operate every app on your Mac.
+
+```
+You:     "Send an email to sarah@company.com about the Q4 report"
+Agent:   ghost_run recipe:"gmail-send" params:{recipient, subject, body}
+         → Compose opens, fields fill, email sends. Done.
+```
+
+<!-- TODO: Replace with demo GIF
+Split screen: Chrome (left) + Terminal (right)
+Run ghost_run gmail-send, watch compose open and send
+Record: Cmd+Shift+5 or https://gifcap.dev
+Convert: ffmpeg -i demo.mov -vf "fps=10,scale=1280:-1" demo.gif
 -->
 
-[Demo GIF coming soon]
-
-## Quick Start
+## Install
 
 ```bash
 brew install ghostwright/tap/ghost-os
 ghost setup
-# Restart Claude Code. Done.
 ```
 
-`ghost setup` walks you through permissions, configures MCP, and installs bundled recipes. Three minutes, start to finish.
-
-## What Can It Do?
-
-Your AI agent can now:
-
-- **Send emails** through Gmail without touching Playwright
-- **Download papers** from arXiv, PDF and all
-- **Fill out forms** on any website, any app
-- **Test your site** by actually clicking through it like a real user
-- **Navigate System Settings** to change configurations
-- **Manage files** in Finder, create folders, rename things
-- **Post messages** in Slack, reply to threads
-- **Chain workflows** together. Search, then click, then fill, then submit.
-
-And once it figures out a workflow, it saves a recipe. Next time, one command.
-
-## Recipes: Learn Once, Run Forever
-
-This is the idea that makes Ghost OS different.
-
-Your agent explores Gmail manually. Clicks Compose, finds the To field, types the address, fills Subject and Body, hits Cmd+Return. It works. Great.
-
-Now save that as a recipe:
-
-```
-ghost_recipe_save '{ "name": "gmail-send", "steps": [...] }'
-```
-
-From now on, any agent, any model, any time:
-
-```
-ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com", "subject":"Hello", "body":"World"}
-```
-
-One command. Seven steps execute automatically. Compose opens, fields fill, email sends. Takes about 30 seconds.
-
-**Why this matters:**
-- A frontier model (Claude, GPT-4) figures out the workflow once. That's the expensive part.
-- A small model (Haiku, GPT-4o-mini) runs the recipe forever. That's the cheap part.
-- Recipes are just JSON files. You can read every step. No black box.
-- Share recipes with your team. One person figures out the workflow, everyone benefits.
+That's it. `ghost setup` handles permissions, MCP configuration, and recipe installation.
 
 ## How It Works
 
-Every app on your Mac exposes an accessibility tree. It's the same structured data that screen readers like VoiceOver use. Every button, text field, link, menu item, and window is in there, with its name, position, role, and available actions.
+Ghost OS connects to your AI agent through [MCP](https://modelcontextprotocol.io) and gives it 20 tools to see and operate your Mac. It reads the macOS accessibility tree for structured data about every app, and takes screenshots when visual context is needed. Click, type, scroll, press keys, manage windows. Any app, not just browsers.
 
-Ghost OS reads this tree and gives your AI agent 20 tools to work with:
+```
+You:     "Download the latest paper on chain-of-thought prompting from arXiv"
+Agent:   ghost_run recipe:"arxiv-download" params:{query:"chain of thought prompting"}
+         → Navigates to arXiv, searches, opens PDF, downloads to Desktop. Done.
+```
 
-### Perception (see what's on screen)
-| Tool | What it does |
-|------|-------------|
-| `ghost_context` | Where am I? Current app, URL, focused element |
-| `ghost_state` | All running apps and their windows |
-| `ghost_find` | Find elements by name, role, DOM id |
-| `ghost_read` | Read text content from any app |
-| `ghost_inspect` | Full metadata about one element |
-| `ghost_element_at` | What's at this screen coordinate? |
-| `ghost_screenshot` | Visual capture for debugging |
+Works with Claude Code, Cursor, VS Code, or anything that speaks MCP.
 
-### Action (operate apps)
-| Tool | What it does |
-|------|-------------|
-| `ghost_click` | Click an element or coordinate |
-| `ghost_type` | Type into a field by name |
-| `ghost_press` | Press a key (Return, Tab, Escape) |
-| `ghost_hotkey` | Key combos (Cmd+L, Cmd+Return) |
-| `ghost_scroll` | Scroll in any direction |
-| `ghost_focus` | Bring an app to the front |
-| `ghost_window` | Minimize, maximize, move, resize |
+## Recipes
 
-### Wait (timing without guessing)
-| Tool | What it does |
-|------|-------------|
-| `ghost_wait` | Wait for URL change, element to appear/disappear |
+When your agent figures out a workflow, it saves it as a recipe. A recipe is a JSON file with steps, parameters, and wait conditions. Transparent and auditable.
 
-### Recipes (learn and replay)
-| Tool | What it does |
-|------|-------------|
-| `ghost_recipes` | List available recipes |
-| `ghost_run` | Execute a recipe with parameters |
-| `ghost_recipe_show` | View recipe steps |
-| `ghost_recipe_save` | Save a new recipe |
-| `ghost_recipe_delete` | Remove a recipe |
+**A frontier model figures out the workflow once. A small model runs it forever.**
 
-The agent calls these tools through the [Model Context Protocol](https://modelcontextprotocol.io) (MCP). Ghost OS runs as an MCP server that any compatible AI agent can connect to. Claude Code, Cursor, VS Code with Claude, or anything else that speaks MCP.
+```bash
+# One command sends an email
+ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":"Hello","body":"World"}
 
-## No Playwright. No Screenshots. Native.
+# 7 steps, 30 seconds, 100% reliable
+```
 
-Other approaches to computer-use AI take a screenshot, send it to a vision model, get back coordinates, click, take another screenshot, repeat. That's slow, expensive, and fails more often than it works.
+- Recipes are just JSON. Read every step before running.
+- Share with your team. One person learns the workflow, everyone benefits.
+- Chain recipes together. The agent knows when to call what.
+- Write once with Claude or GPT-4. Run forever with Haiku.
 
-Ghost OS reads structured data. It knows "this is a button called Compose at position (200, 140) that supports the press action." No guessing. No vision model needed for navigation. Screenshots are there when you want visual context, but they're not the primary interface.
+## 20 Tools
 
-And it works for every app on your Mac, not just browsers. Mail, Finder, Messages, System Settings, Slack, VS Code, anything with a window.
+| | Tool | Purpose |
+|---|------|---------|
+| 👁️ | `ghost_context` | Current app, URL, focused element, interactive elements |
+| 👁️ | `ghost_find` | Find elements by name, role, or DOM id |
+| 👁️ | `ghost_read` | Read text content from any app |
+| 👁️ | `ghost_screenshot` | Visual capture for debugging |
+| 👁️ | `ghost_inspect` | Full metadata about one element |
+| 👁️ | `ghost_state` | All running apps and windows |
+| 👁️ | `ghost_element_at` | Identify element at screen coordinates |
+| 🖱️ | `ghost_click` | Click elements or coordinates |
+| ⌨️ | `ghost_type` | Type into fields by name |
+| ⌨️ | `ghost_press` | Press keys (Return, Tab, Escape) |
+| ⌨️ | `ghost_hotkey` | Key combos (Cmd+L, Cmd+Return) |
+| 🖱️ | `ghost_scroll` | Scroll in any direction |
+| 🪟 | `ghost_focus` | Bring an app to the front |
+| 🪟 | `ghost_window` | Minimize, maximize, move, resize |
+| ⏳ | `ghost_wait` | Wait for conditions (URL change, element appear) |
+| 📋 | `ghost_recipes` | List available recipes |
+| ▶️ | `ghost_run` | Execute a recipe with parameters |
+| 📋 | `ghost_recipe_show` | View recipe steps |
+| 💾 | `ghost_recipe_save` | Save a new recipe |
+| 🗑️ | `ghost_recipe_delete` | Remove a recipe |
 
 ## Diagnostics
 
-Something not working? Ghost OS tells you exactly what's wrong.
-
 ```bash
 $ ghost doctor
-
-  Ghost OS Doctor
-  ══════════════════════════════════
 
   ✓ Accessibility: granted
   ✓ Screen Recording: granted
@@ -148,33 +117,29 @@ swift build
 .build/debug/ghost setup
 ```
 
-Requires Swift 6.2+ and macOS 14+. Ghost OS depends on [AXorcist](https://github.com/steipete/AXorcist) for accessibility tree access.
+Requires Swift 6.2+ and macOS 14+.
 
 ## Architecture
 
 ```
 AI Agent (Claude Code, Cursor, any MCP client)
-    |
-    | MCP Protocol (stdio)
-    |
-Ghost OS MCP Server (20 tools)
-    |
-    ├── Perception: read the screen via accessibility tree
-    ├── Actions: click, type, scroll via AX-native + synthetic fallback
-    ├── Recipes: parameterized, replayable workflows
-    └── AXorcist: Swift accessibility library
-        |
-        macOS Accessibility Framework
+    │
+    │ MCP Protocol (stdio)
+    │
+Ghost OS MCP Server
+    │
+    ├── Perception ── see what's on screen
+    ├── Actions ───── click, type, scroll, keys
+    ├── Recipes ───── self-learning workflows
+    └── AXorcist ──── macOS accessibility engine
 ```
 
-~4,500 lines of Swift. 17 source files. No dependencies besides AXorcist.
+~4,500 lines of Swift. Built on [AXorcist](https://github.com/steipete/AXorcist) by [@steipete](https://github.com/steipete).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
-
-Ghost OS is at the beginning. The tools work, recipes work, Gmail and arXiv are proven. But there are hundreds of apps to test, dozens of recipes to write, and a whole ecosystem of agent workflows to build. If you're interested in making AI agents that actually do things, this is the project.
+See [CONTRIBUTING.md](CONTRIBUTING.md). We need recipes for more apps, testing on different setups, and bug reports. If you're building AI agents that do real things, this is the project.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT
