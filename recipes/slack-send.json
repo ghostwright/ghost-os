@@ -1,0 +1,93 @@
+{
+  "app": "Slack",
+  "description": "Send a message to a Slack channel. Navigates to the specified channel via Cmd+K search, types the message, and sends it.",
+  "name": "slack-send",
+  "on_failure": "stop",
+  "params": {
+    "channel": {
+      "description": "Channel name without #, e.g. 'all-kynine' or 'announcements'",
+      "required": true,
+      "type": "string"
+    },
+    "message": {
+      "description": "Message text to send",
+      "required": true,
+      "type": "string"
+    }
+  },
+  "preconditions": {
+    "app_running": "Slack"
+  },
+  "schema_version": 2,
+  "steps": [
+    {
+      "action": "hotkey",
+      "id": 1,
+      "note": "Open channel switcher",
+      "params": {
+        "keys": "cmd,k"
+      }
+    },
+    {
+      "action": "type",
+      "id": 2,
+      "note": "Search for channel",
+      "params": {
+        "text": "{{channel}}"
+      }
+    },
+    {
+      "action": "press",
+      "id": 3,
+      "note": "Navigate to channel and wait for it to load",
+      "params": {
+        "key": "return"
+      },
+      "wait_after": {
+        "condition": "titleContains",
+        "timeout": 5,
+        "value": "{{channel}}"
+      }
+    },
+    {
+      "action": "click",
+      "id": 4,
+      "note": "Click message input box",
+      "target": {
+        "computedNameContains": "Message to",
+        "criteria": [
+          {
+            "attribute": "AXRole",
+            "value": "AXTextArea"
+          }
+        ]
+      }
+    },
+    {
+      "action": "type",
+      "id": 5,
+      "note": "Type the message",
+      "params": {
+        "text": "{{message}}"
+      }
+    },
+    {
+      "action": "hotkey",
+      "id": 6,
+      "note": "Send message",
+      "params": {
+        "keys": "cmd,return"
+      }
+    },
+    {
+      "action": "wait",
+      "id": 7,
+      "note": "Wait for message to appear in channel",
+      "params": {
+        "condition": "elementExists",
+        "timeout": 3,
+        "value": "{{message}}"
+      }
+    }
+  ]
+}
