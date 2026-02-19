@@ -106,18 +106,17 @@ struct Doctor {
             return
         }
 
-        let listResult = runShell("claude mcp list 2>/dev/null")
-        if listResult.output.contains("ghost-os") {
-            if listResult.output.contains("Connected") || listResult.output.contains("connected") {
-                print("  ✓ MCP Config: ghost-os connected")
-            } else if listResult.output.contains("Failed") {
-                print("  ✗ MCP Config: ghost-os configured but failed to connect")
-                print("    Fix: check if the binary path is correct:")
-                print("      claude mcp list")
-                issueCount += 1
-            } else {
-                print("  ✓ MCP Config: ghost-os configured")
-            }
+        // Read config file directly instead of running `claude mcp list`
+        // which health-checks every server and takes 30+ seconds.
+        let configPath = NSHomeDirectory() + "/.claude.json"
+        if let data = FileManager.default.contents(atPath: configPath),
+           let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let mcpServers = config["mcpServers"] as? [String: Any],
+           let ghostConfig = mcpServers["ghost-os"] as? [String: Any]
+        {
+            let command = ghostConfig["command"] as? String ?? "(unknown)"
+            print("  ✓ MCP Config: ghost-os configured")
+            print("    Binary: \(command)")
         } else {
             print("  ✗ MCP Config: ghost-os not configured")
             let binaryPath = resolveBinaryPath()
