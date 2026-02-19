@@ -765,32 +765,38 @@ public enum Perception {
     // MARK: - Sync Screenshot Bridge
 
     /// Bridge ScreenCaptureKit's async API to synchronous using RunLoop spinning.
-    /// This avoids Sendable issues with Task.detached and semaphores.
-    nonisolated private static func captureScreenshotSync(
+    /// This is the v1-proven pattern: fire a Task (inherits MainActor), then spin
+    /// RunLoop.main to process its continuations. Works because we own the main
+    /// thread and RunLoop.main.run(until:) processes events (including Task
+    /// completions) in each iteration.
+    private static func captureScreenshotSync(
         pid: pid_t,
         fullResolution: Bool
     ) -> ScreenshotResult? {
-        var result: ScreenshotResult?
-        var done = false
-
-        // Use nonisolated detached task to avoid MainActor Sendable issues
-        let pidCopy = pid
-        let fullResCopy = fullResolution
-        Task.detached { @Sendable in
-            let r = await ScreenCapture.captureWindow(
-                pid: pidCopy,
-                fullResolution: fullResCopy
-            )
-            await MainActor.run {
-                result = r
-                done = true
-            }
+        // Permission check first (fail-fast)
+        guard ScreenCapture.hasPermission() else {
+            Log.error("Screenshot: Screen Recording permission not granted")
+            return nil
         }
 
-        // Spin RunLoop until done or timeout (10 seconds)
+        var result: ScreenshotResult?
+        var completed = false
+
+        // Fire async capture. Task inherits MainActor context.
+        Task {
+            result = await ScreenCapture.captureWindow(
+                pid: pid, fullResolution: fullResolution
+            )
+            completed = true
+        }
+
+        // Spin RunLoop.main until async task completes.
+        // Each iteration processes ~10ms of events, giving ScreenCaptureKit
+        // time to make progress. No deadlock because we're running the RunLoop,
+        // not blocking it.
         let deadline = Date().addingTimeInterval(10)
-        while !done && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        while !completed && Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
 
         return result
