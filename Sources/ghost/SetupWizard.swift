@@ -196,11 +196,14 @@ struct SetupWizard {
             return
         }
 
-        // Check if already configured
-        let listResult = runShell("claude mcp list 2>/dev/null")
-        if listResult.output.contains("ghost-os") {
-            print("  Ghost OS is already configured as an MCP server.")
-            printOK("Configured")
+        // Check if already configured (read config file directly — claude mcp list hangs)
+        let configPath = NSHomeDirectory() + "/.claude.json"
+        if let data = FileManager.default.contents(atPath: configPath),
+           let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let mcpServers = config["mcpServers"] as? [String: Any],
+           mcpServers["ghost-os"] != nil
+        {
+            printOK("Already configured")
             return
         }
 
