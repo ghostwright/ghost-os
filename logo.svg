@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="ghostBody" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#6ee7a8"/>
+      <stop offset="100%" stop-color="#34d48c"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Ghost body — vibrant green with stronger stroke -->
+  <path d="
+    M 256 52
+    C 160 52, 100 130, 100 230
+    L 100 380
+    C 100 395, 112 405, 122 395
+    C 135 382, 148 398, 160 405
+    C 175 414, 185 395, 198 390
+    C 210 386, 218 404, 232 408
+    C 244 412, 250 398, 256 394
+    C 262 398, 268 412, 280 408
+    C 294 404, 302 386, 314 390
+    C 327 395, 337 414, 352 405
+    C 364 398, 377 382, 390 395
+    C 400 405, 412 395, 412 380
+    L 412 230
+    C 412 130, 352 52, 256 52
+    Z
+  " fill="url(#ghostBody)" stroke="#1fa86e" stroke-width="3"/>
+
+  <!-- Left eye -->
+  <ellipse cx="210" cy="225" rx="32" ry="38" fill="#1a1a2e"/>
+  <!-- Left eye highlight -->
+  <circle cx="222" cy="213" r="11" fill="white" opacity="0.9"/>
+
+  <!-- Right eye -->
+  <ellipse cx="302" cy="225" rx="32" ry="38" fill="#1a1a2e"/>
+  <!-- Right eye highlight -->
+  <circle cx="314" cy="213" r="11" fill="white" opacity="0.9"/>
+
+  <!-- Mouth — friendly open oval -->
+  <ellipse cx="256" cy="300" rx="28" ry="22" fill="#1a1a2e"/>
+
+  <!-- Tongue — richer green -->
+  <ellipse cx="256" cy="312" rx="15" ry="10" fill="#1fa86e" opacity="0.7"/>
+
+  <!-- Cheek blush — left (stronger coral) -->
+  <circle cx="175" cy="265" r="24" fill="#f08070" opacity="0.4"/>
+  <!-- Cheek blush — right (stronger coral) -->
+  <circle cx="337" cy="265" r="24" fill="#f08070" opacity="0.4"/>
+</svg>

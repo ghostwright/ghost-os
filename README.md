@@ -1,7 +1,9 @@
 <p align="center">
-  <h1 align="center">👻 Ghost OS</h1>
-  <p align="center">Full computer-use for AI agents. Self-learning. Native. No screenshots required.</p>
+  <img src="logo-animated.gif" width="140" alt="Ghost OS">
 </p>
+
+<h1 align="center">Ghost OS</h1>
+<p align="center"><em>Full computer-use for AI agents.</em></p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
