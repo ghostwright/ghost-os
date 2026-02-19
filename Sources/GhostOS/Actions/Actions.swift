@@ -551,34 +551,51 @@ public enum Actions {
             searchRoot = appElement
         }
 
-        // Collect ALL matching elements with scores
+        // Collect ALL matching elements with scores.
+        // Uses semantic depth (empty layout containers cost 0) so we reach
+        // Gmail compose fields at DOM depth 30+ within budget of 25.
         var candidates: [(element: Element, score: Int)] = []
         scoreFieldCandidates(
             element: searchRoot,
             queryLower: queryLower,
             candidates: &candidates,
-            depth: 0,
-            maxDepth: GhostConstants.semanticDepthBudget
+            semanticDepth: 0,
+            maxSemanticDepth: GhostConstants.semanticDepthBudget
         )
 
         // Return the highest-scoring candidate
         return candidates.max(by: { $0.score < $1.score })?.element
     }
 
+    /// Layout roles that cost zero semantic depth (tunneled through).
+    /// Same set used by ghost_read's semantic depth tunneling.
+    private static let layoutRoles: Set<String> = [
+        "AXGroup", "AXGenericElement", "AXSection", "AXDiv",
+        "AXList", "AXLandmarkMain", "AXLandmarkNavigation",
+        "AXLandmarkBanner", "AXLandmarkContentInfo",
+    ]
+
     /// Walk the tree scoring elements as field candidates.
+    /// Uses SEMANTIC depth (empty layout containers cost 0) so we can
+    /// reach Gmail compose fields at DOM depth 30+ within budget of 25.
     private static func scoreFieldCandidates(
         element: Element,
         queryLower: String,
         candidates: inout [(element: Element, score: Int)],
-        depth: Int,
-        maxDepth: Int
+        semanticDepth: Int,
+        maxSemanticDepth: Int
     ) {
-        guard depth < maxDepth, candidates.count < 100 else { return }
+        guard semanticDepth <= maxSemanticDepth, candidates.count < 100 else { return }
 
         let role = element.role() ?? ""
         let titleLower = (element.title() ?? "").lowercased()
         let descLower = (element.descriptionText() ?? "").lowercased()
         let nameLower = (element.computedName() ?? "").lowercased()
+
+        // Semantic depth: empty layout containers cost 0
+        let hasContent = !titleLower.isEmpty || !descLower.isEmpty || !nameLower.isEmpty
+        let isTunnel = layoutRoles.contains(role) && !hasContent
+        let childSemanticDepth = isTunnel ? semanticDepth : semanticDepth + 1
 
         // Score: does this element's name match the query?
         var score = 0
@@ -616,12 +633,14 @@ public enum Actions {
             }
         }
 
-        // Recurse into children
+        // Recurse into children with semantic depth
         guard let children = element.children() else { return }
         for child in children {
             scoreFieldCandidates(
                 element: child, queryLower: queryLower,
-                candidates: &candidates, depth: depth + 1, maxDepth: maxDepth
+                candidates: &candidates,
+                semanticDepth: childSemanticDepth,
+                maxSemanticDepth: maxSemanticDepth
             )
         }
     }
