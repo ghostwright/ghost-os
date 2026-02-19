@@ -18,7 +18,7 @@ let package = Package(
         .executable(name: "ghost", targets: ["ghost"]),
     ],
     dependencies: [
-        .package(path: "../AXorcist"),
+        .package(url: "https://github.com/steipete/AXorcist.git", from: "0.1.0"),
     ],
     targets: [
         .target(

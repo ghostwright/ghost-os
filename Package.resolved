@@ -1,6 +1,15 @@
 {
-  "originHash" : "bde03c91bf40a1718b06ca17b4e7ebb3fb18c486afc5ea82442f9c8a061c70f4",
+  "originHash" : "62485a650d4b08eeef37667d4fa58395961ced561405e6f6f421c5cb2a75b45f",
   "pins" : [
+    {
+      "identity" : "axorcist",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/steipete/AXorcist.git",
+      "state" : {
+        "revision" : "c75d06f7f93e264a9786edc2b78c04973061cb2f",
+        "version" : "0.1.0"
+      }
+    },
     {
       "identity" : "commander",
       "kind" : "remoteSourceControl",
