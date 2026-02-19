@@ -157,10 +157,22 @@ public enum Actions {
     ) -> ToolResult {
         // If target field specified, find it and type into it
         if let fieldName = into ?? domId {
-            let locator = LocatorBuilder.build(query: into, domId: domId)
+            // For 'into' parameter, use field-specific search that prefers
+            // editable/interactive roles (AXComboBox, AXTextField, AXTextArea)
+            // over random elements that happen to contain the text.
+            // This prevents into:"To" from matching "Skip to content" instead
+            // of the actual "To recipients" field.
+            let element: Element?
+            if let domId {
+                let locator = LocatorBuilder.build(domId: domId)
+                element = findElement(locator: locator, appName: appName)
+            } else if let into {
+                element = findEditableField(named: into, appName: appName)
+            } else {
+                element = nil
+            }
 
-            // Find the target element FIRST (we need the reference for readback)
-            guard let element = findElement(locator: locator, appName: appName) else {
+            guard let element else {
                 return ToolResult(
                     success: false,
                     error: "Field '\(fieldName)' not found",
@@ -507,6 +519,111 @@ public enum Actions {
         }
         guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
         return Element.application(for: frontApp.processIdentifier)
+    }
+
+    // MARK: - Field Finding for ghost_type into
+
+    /// Editable/input roles that the 'into' parameter should match against.
+    /// When someone says into:"To", they mean a field labeled "To", not
+    /// a link that says "Skip to content".
+    private static let editableRoles: Set<String> = [
+        "AXTextField", "AXTextArea", "AXComboBox", "AXSearchField",
+        "AXSecureTextField",
+    ]
+
+    /// Find an editable field by name. Searches ALL matching elements and
+    /// scores them, preferring editable roles and exact/prefix matches.
+    /// This is the v1 SmartResolver pattern adapted for v2.
+    private static func findEditableField(named query: String, appName: String?) -> Element? {
+        guard let appElement = resolveAppElement(appName: appName) else { return nil }
+
+        let queryLower = query.lowercased()
+
+        // Search from content root first (web area), then full tree
+        let searchRoot: Element
+        if let window = appElement.focusedWindow(),
+           let webArea = Perception.findWebArea(in: window)
+        {
+            searchRoot = webArea
+        } else if let window = appElement.focusedWindow() {
+            searchRoot = window
+        } else {
+            searchRoot = appElement
+        }
+
+        // Collect ALL matching elements with scores
+        var candidates: [(element: Element, score: Int)] = []
+        scoreFieldCandidates(
+            element: searchRoot,
+            queryLower: queryLower,
+            candidates: &candidates,
+            depth: 0,
+            maxDepth: GhostConstants.semanticDepthBudget
+        )
+
+        // Return the highest-scoring candidate
+        return candidates.max(by: { $0.score < $1.score })?.element
+    }
+
+    /// Walk the tree scoring elements as field candidates.
+    private static func scoreFieldCandidates(
+        element: Element,
+        queryLower: String,
+        candidates: inout [(element: Element, score: Int)],
+        depth: Int,
+        maxDepth: Int
+    ) {
+        guard depth < maxDepth, candidates.count < 100 else { return }
+
+        let role = element.role() ?? ""
+        let titleLower = (element.title() ?? "").lowercased()
+        let descLower = (element.descriptionText() ?? "").lowercased()
+        let nameLower = (element.computedName() ?? "").lowercased()
+
+        // Score: does this element's name match the query?
+        var score = 0
+
+        // Exact match on any name property
+        if titleLower == queryLower || descLower == queryLower || nameLower == queryLower {
+            score = 100
+        }
+        // Starts with query
+        else if titleLower.hasPrefix(queryLower) || descLower.hasPrefix(queryLower) || nameLower.hasPrefix(queryLower) {
+            score = 80
+        }
+        // Contains query
+        else if titleLower.contains(queryLower) || descLower.contains(queryLower) || nameLower.contains(queryLower) {
+            score = 60
+        }
+
+        if score > 0 {
+            // Bonus for editable/interactive roles (the whole point of 'into')
+            if editableRoles.contains(role) {
+                score += 30
+            }
+            // Bonus for any interactive role
+            let interactiveRoles: Set<String> = [
+                "AXButton", "AXLink", "AXCheckBox", "AXRadioButton",
+                "AXPopUpButton", "AXMenuButton",
+            ]
+            if interactiveRoles.contains(role) {
+                score += 10
+            }
+
+            // Only include if score is reasonable
+            if score >= 50 {
+                candidates.append((element: element, score: score))
+            }
+        }
+
+        // Recurse into children
+        guard let children = element.children() else { return }
+        for child in children {
+            scoreFieldCandidates(
+                element: child, queryLower: queryLower,
+                candidates: &candidates, depth: depth + 1, maxDepth: maxDepth
+            )
+        }
     }
 
     // MARK: - Readback Verification
