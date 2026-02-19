@@ -194,25 +194,45 @@ public enum Actions {
 
                 let setOk = element.setValue(text, forAttribute: "AXValue")
                 if setOk {
-                    Thread.sleep(forTimeInterval: 0.15)
+                    usleep(150_000) // 150ms (v1's timing)
 
-                    // Verify: read back AXValue to confirm it stuck
-                    let readback = readbackFromElement(element)
-                    let textPrefix = String(text.prefix(20))
-                    if readback.contains(textPrefix) {
-                        // setValue worked and verified
+                    // Verify: read AXValue DIRECTLY via raw API on the SAME element.
+                    // v1's proven pattern: raw AXUIElementCopyAttributeValue, not
+                    // computedName/title fallbacks which return wrong data from
+                    // stale handles or overlay elements.
+                    var readBackRef: CFTypeRef?
+                    let readBackOk = AXUIElementCopyAttributeValue(
+                        element.underlyingElement,
+                        "AXValue" as CFString,
+                        &readBackRef
+                    )
+                    let readback: String?
+                    if readBackOk == .success, let ref = readBackRef {
+                        if let str = ref as? String, !str.isEmpty {
+                            readback = str
+                        } else if CFGetTypeID(ref) == CFStringGetTypeID() {
+                            readback = (ref as! CFString) as String
+                        } else {
+                            readback = nil
+                        }
+                    } else {
+                        readback = nil
+                    }
+
+                    // Check if first 10 chars match (v1's threshold)
+                    let textPrefix = String(text.prefix(10))
+                    if let readback, readback.contains(textPrefix) {
                         return ToolResult(
                             success: true,
                             data: [
                                 "method": "ax-native-setValue",
                                 "field": fieldName,
                                 "typed": text,
-                                "readback": readback,
+                                "readback": String(readback.prefix(200)),
                             ]
                         )
                     }
-                    // setValue returned true but text didn't stick (Chrome web fields)
-                    Log.info("setValue for '\(fieldName)' returned OK but readback doesn't match - falling back to click-then-type")
+                    Log.info("setValue for '\(fieldName)' readback doesn't match - falling back to click-then-type")
                 }
             }
 
@@ -344,13 +364,14 @@ public enum Actions {
 
         do {
             try Element.performHotkey(keys: keys)
-            // Wait for the hotkey events to be fully processed by the target app
-            // BEFORE clearing modifier flags. If we clear too early, Cmd might
-            // be released before the Return key event registers with the app.
-            usleep(200_000) // 200ms for app to process the hotkey
-            // Now safe to clear modifier flags
+            // Clear modifier flags IMMEDIATELY after the key events.
+            // v1's proven order: clear first, delay after.
+            // If we delay before clearing, the system thinks Cmd is held for 200ms
+            // which makes Chrome enter shortcut-hint mode (the "flicker") and
+            // disrupts text selection in the address bar.
             FocusManager.clearModifierFlags()
             usleep(10_000) // 10ms for clear event to propagate
+            usleep(200_000) // 200ms for app to process the hotkey result
             return ToolResult(success: true, data: ["keys": keys])
         } catch {
             FocusManager.clearModifierFlags()
@@ -360,7 +381,9 @@ public enum Actions {
 
     // MARK: - ghost_scroll
 
-    /// Scroll in a direction.
+    /// Scroll in a direction. Uses AXorcist's element-based scroll when app is
+    /// specified (auto-handles multi-monitor via AX coordinates). Falls back to
+    /// InputDriver.scroll with explicit coordinates when x,y are provided.
     public static func scroll(
         direction: String,
         amount: Int?,
@@ -368,30 +391,95 @@ public enum Actions {
         x: Double?,
         y: Double?
     ) -> ToolResult {
-        if let appName {
-            _ = FocusManager.focus(appName: appName)
-            Thread.sleep(forTimeInterval: 0.2)
-        }
+        let scrollAmount = amount ?? 3
 
-        let lines = Double(amount ?? 3)
-        let deltaY: Double
-        let deltaX: Double
-
-        switch direction.lowercased() {
-        case "up":    deltaY = lines * 10; deltaX = 0
-        case "down":  deltaY = -lines * 10; deltaX = 0
-        case "left":  deltaX = lines * 10; deltaY = 0
-        case "right": deltaX = -lines * 10; deltaY = 0
-        default:
+        guard let scrollDir = mapScrollDirection(direction) else {
             return ToolResult(success: false, error: "Invalid direction: '\(direction)'")
         }
 
+        // If explicit coordinates provided, use InputDriver directly
+        if let x, let y {
+            if let appName {
+                _ = FocusManager.focus(appName: appName)
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+            do {
+                try Element.scrollAt(
+                    CGPoint(x: x, y: y),
+                    direction: scrollDir,
+                    amount: scrollAmount
+                )
+                return ToolResult(success: true, data: ["direction": direction, "amount": scrollAmount])
+            } catch {
+                return ToolResult(success: false, error: "Scroll failed: \(error)")
+            }
+        }
+
+        // If app specified, use element-based scroll on the focused window.
+        // AXorcist's element.scroll() calculates coordinates from the element's
+        // frame, which auto-handles multi-monitor setups.
+        if let appName {
+            guard let appElement = Perception.appElement(for: appName) else {
+                return ToolResult(success: false, error: "Application '\(appName)' not found")
+            }
+            guard let window = appElement.focusedWindow() ?? appElement.mainWindow() else {
+                return ToolResult(success: false, error: "No window found for '\(appName)'")
+            }
+
+            // Find a scrollable area within the window (AXWebArea for browsers,
+            // AXScrollArea for native apps, or the window itself)
+            let scrollTarget = findScrollable(in: window) ?? window
+
+            do {
+                try scrollTarget.scroll(direction: scrollDir, amount: scrollAmount)
+                return ToolResult(success: true, data: ["direction": direction, "amount": scrollAmount])
+            } catch {
+                // Fallback: try scrolling at the window's center
+                if let frame = window.frame() {
+                    let center = CGPoint(x: frame.midX, y: frame.midY)
+                    do {
+                        try Element.scrollAt(center, direction: scrollDir, amount: scrollAmount)
+                        return ToolResult(success: true, data: ["direction": direction, "amount": scrollAmount])
+                    } catch {
+                        return ToolResult(success: false, error: "Scroll failed: \(error)")
+                    }
+                }
+                return ToolResult(success: false, error: "Scroll failed: \(error)")
+            }
+        }
+
+        // No app, no coordinates - scroll at current mouse position
         do {
-            let point: CGPoint? = if let x, let y { CGPoint(x: x, y: y) } else { nil }
-            try InputDriver.scroll(deltaX: deltaX, deltaY: deltaY, at: point)
-            return ToolResult(success: true, data: ["direction": direction, "amount": amount ?? 3])
+            let lines = Double(scrollAmount)
+            let deltaY: Double = (direction == "up" ? lines * 10 : -lines * 10)
+            try InputDriver.scroll(deltaY: deltaY, at: nil)
+            return ToolResult(success: true, data: ["direction": direction, "amount": scrollAmount])
         } catch {
             return ToolResult(success: false, error: "Scroll failed: \(error)")
+        }
+    }
+
+    /// Find a scrollable element within a window (AXScrollArea or AXWebArea).
+    private static func findScrollable(in element: Element, depth: Int = 0) -> Element? {
+        guard depth < 5 else { return nil }
+        let role = element.role() ?? ""
+        if role == "AXScrollArea" || role == "AXWebArea" { return element }
+        guard let children = element.children() else { return nil }
+        for child in children {
+            if let found = findScrollable(in: child, depth: depth + 1) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private static func mapScrollDirection(_ direction: String) -> ScrollDirection? {
+        switch direction.lowercased() {
+        case "up": .up
+        case "down": .down
+        case "left": .left
+        case "right": .right
+        default: nil
         }
     }
 
