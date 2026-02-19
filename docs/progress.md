@@ -1,38 +1,37 @@
 # Ghost OS v2 Progress
 
-## Current State: Phases 0-4 COMPLETE, bug fixes applied, ready for testing
+## Current State: Phases 0-5 COMPLETE. Phase 6-7 next.
 
-## Architecture Changes (from live testing feedback)
+## What Works (tested end-to-end)
+- **20/20 MCP tools** functional
+- **gmail-send recipe**: 5/5 success via ghost_run
+- **arxiv-download recipe**: 3/3 success (agent-created, 8 steps)
+- **Screenshots**: stable on multi-monitor, inline display in Claude Code
+- **Cmd+L navigation**: works consistently (no flicker)
+- **Scroll**: works on second monitor via element-based scroll
+- **All perception tools**: context, state, find, read, inspect, element_at
+- **All action tools**: click, type (into field + at focus), press, hotkey, scroll
+- **All wait conditions**: urlContains, elementExists, elementGone, titleContains
+- **Recipe CRUD**: list, show, save (with decode error details), delete
 
-After live testing revealed 8 bugs, the action module was rewritten from scratch:
-
-**Old approach (broken):** Called `element.press()`, `element.click()`, `element.typeText()`
-directly on Element objects. This bypassed AXorcist's focus management, action validation,
-and element resolution.
-
-**New approach (correct):** Uses AXorcist's COMMAND SYSTEM:
-- `ghost_click` -> `PerformActionCommand` with Locator -> AXorcist handles finding + AXPress
-- `ghost_type` -> `SetFocusedValueCommand` with Locator -> AXorcist handles focus + setValue
-- Synthetic fallback only when AXorcist's AX-native path returns error
-
-**Screenshot bridge (fixed):** Changed from `Task.detached` (crashed with CGS_REQUIRE_INIT)
-to `Task {}` + `RunLoop.main.run(until:)` spinning (v1's proven pattern).
-
-## Bug Fix Summary
-
-| Bug | Root Cause | Fix |
-|-----|-----------|-----|
-| elementExists false positives | findElement matched stringValue (terminal scrollback) | Custom computedName-only search |
-| Screenshot crash | Task.detached ran on non-CG thread | Task {} + RunLoop.main spinning |
-| Screenshot too large | PNG, text-wrapped JSON | JPEG 70% + MCP image content type |
-| Type readback wrong | Reading wrong element / only trying value() | Multi-strategy readback |
-| Click never AX-native | Used element.press() not AXorcist command | PerformActionCommand |
-| Type into broken | Didn't use AXorcist's setValue flow | SetFocusedValueCommand |
-| Focus flaky | Single attempt, short wait | Retry with longer waits |
-| Find duplicates | Chrome multiple windows | Deduplicate by element hash |
+## Key Numbers
+- 15 Swift files, ~3,800 lines (vs v1's 6,200)
+- ~20 commits on main
+- GitHub: ghostwright/ghost-os
 
 ## What's Next
 
-1. **Live test** the rebuilt action module
-2. **Phase 5**: RecipeEngine implementation
-3. **Phase 7**: Testing against 10 apps
+### Phase 6: Setup & Polish
+- `ghost setup` wizard: permissions, MCP config, recipe install, self-test
+- Polish GHOST-MCP.md with learnings (use "To recipients" not "To", etc.)
+- Bundled recipes: install from repo recipes/ dir on first run
+
+### Phase 7: Testing & Hardening
+- Test against 10 apps (Slack, Finder, System Settings, Messages, etc.)
+- Recipe reliability tests (run each 5x, track success rate)
+- Stress test (MCP server up 24 hours)
+
+## Known Items (not blocking)
+- Field-finding takes ~11s for deep web apps (exhaustive tree walk)
+- elementExists uses contains matching (document in GHOST-MCP.md)
+- into:"To" works but into:"To recipients" is more reliable for recipes
