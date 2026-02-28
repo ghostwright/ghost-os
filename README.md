@@ -67,6 +67,24 @@ ghost setup
 
 That's it. `ghost setup` handles permissions, MCP configuration, recipe installation, and vision model setup.
 
+<details>
+<summary>macOS beta? Use the manual install instead.</summary>
+
+Homebrew has a known issue on macOS developer betas where it demands an Xcode version that doesn't exist yet. If `brew install` fails, install directly:
+
+```bash
+curl -sL https://github.com/ghostwright/ghost-os/releases/latest/download/ghost-os-2.0.5-macos-arm64.tar.gz | tar xz
+sudo cp ghost /opt/homebrew/bin/
+sudo cp ghost-vision /opt/homebrew/bin/
+sudo mkdir -p /opt/homebrew/share/ghost-os
+sudo cp GHOST-MCP.md /opt/homebrew/share/ghost-os/
+sudo cp -r recipes /opt/homebrew/share/ghost-os/
+sudo cp -r vision-sidecar /opt/homebrew/share/ghost-os/
+ghost setup
+```
+
+</details>
+
 ## How It Works
 
 Ghost OS connects to your AI agent through [MCP](https://modelcontextprotocol.io) and gives it 22 tools to see and operate your Mac. It reads the macOS accessibility tree for structured data about every app. For web apps where the AX tree falls short (Gmail, Slack), a local vision model (ShowUI-2B) finds elements visually. Click, type, scroll, press keys, manage windows. Any app, not just browsers.
