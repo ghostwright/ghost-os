@@ -40,8 +40,11 @@ public enum VisionBridge {
     /// Timeout for the first grounding call which also loads the model (~10-15s).
     private static let firstGroundTimeout: TimeInterval = 60.0
 
-    /// PID of the sidecar process we started (if any).
-    nonisolated(unsafe) private static var sidecarPID: Int32?
+    /// The sidecar process we started (if any). Stored to prevent zombie.
+    nonisolated(unsafe) private static var sidecarProcess: Process?
+
+    /// Whether we have completed at least one successful ground() call.
+    nonisolated(unsafe) private static var hasCompletedFirstGround = false
 
     // MARK: - Health Check
 
@@ -116,10 +119,8 @@ public enum VisionBridge {
             payload["crop_box"] = cropBox
         }
 
-        // Use longer timeout for first call (model loading)
-        let health = healthCheck()
-        let modelsLoaded = (health?["models_loaded"] as? [String])?.isEmpty == false
-        let timeout = modelsLoaded ? groundTimeout : firstGroundTimeout
+        // Use longer timeout for first call (model needs to load ~10-15s)
+        let timeout = hasCompletedFirstGround ? groundTimeout : firstGroundTimeout
 
         guard let result = httpPost(path: "/ground", body: payload, timeout: timeout) else {
             Log.warn("Vision sidecar /ground request failed")
@@ -134,6 +135,7 @@ public enum VisionBridge {
             return nil
         }
 
+        hasCompletedFirstGround = true
         return GroundResult(
             x: x,
             y: y,
@@ -167,24 +169,28 @@ public enum VisionBridge {
 
             do {
                 try process.run()
-                sidecarPID = process.processIdentifier
+                sidecarProcess = process
             } catch {
                 Log.error("Failed to start vision sidecar via launcher: \(error)")
-                // Fall through to strategy 2
+                return false
             }
 
             if waitForSidecar() {
                 Log.info("Vision sidecar started (PID \(process.processIdentifier))")
                 return true
             }
+            Log.warn("Vision sidecar launched but not responding after 10s")
+            return false
         }
 
-        // Strategy 2: Run server.py directly with system Python
+        // Strategy 2: Run server.py directly with best available Python
         if let script = findServerScript() {
             Log.info("Starting vision sidecar from \(script)")
 
-            // Find Python with mlx_vlm
-            let python = findPython()
+            guard let python = findPython() else {
+                Log.warn("No Python with mlx_vlm found — cannot start vision sidecar")
+                return false
+            }
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: python)
@@ -194,7 +200,7 @@ public enum VisionBridge {
 
             do {
                 try process.run()
-                sidecarPID = process.processIdentifier
+                sidecarProcess = process
             } catch {
                 Log.error("Failed to start vision sidecar: \(error)")
                 return false
@@ -204,6 +210,8 @@ public enum VisionBridge {
                 Log.info("Vision sidecar started (PID \(process.processIdentifier))")
                 return true
             }
+            Log.warn("Vision sidecar launched but not responding after 10s")
+            return false
         }
 
         Log.warn("Could not find or start vision sidecar")
@@ -272,8 +280,9 @@ public enum VisionBridge {
     }
 
     /// Find the best Python executable with mlx_vlm available.
-    private static func findPython() -> String {
-        // Check venv first
+    /// Returns nil if no suitable Python is found.
+    private static func findPython() -> String? {
+        // Check venv first (most likely to have mlx_vlm)
         let venvPython = NSHomeDirectory() + "/.ghost-os/venv/bin/python3"
         if FileManager.default.isExecutableFile(atPath: venvPython) {
             return venvPython
@@ -286,8 +295,7 @@ public enum VisionBridge {
             }
         }
 
-        // System Python
-        return "/usr/bin/python3"
+        return nil
     }
 
     // MARK: - Model Path Resolution
@@ -305,7 +313,7 @@ public enum VisionBridge {
             let safetensors = (path as NSString).appendingPathComponent("model.safetensors")
             let config = (path as NSString).appendingPathComponent("config.json")
             if FileManager.default.fileExists(atPath: safetensors)
-                || FileManager.default.fileExists(atPath: config)
+                && FileManager.default.fileExists(atPath: config)
             {
                 return path
             }

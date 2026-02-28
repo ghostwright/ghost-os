@@ -39,20 +39,20 @@ Slack messages, Finder folders — Ghost OS operates native macOS apps, not just
 
 ## Why Ghost OS?
 
-Other computer-use tools take screenshots and guess what's on screen. Ghost OS reads the macOS accessibility tree — structured, labeled data about every element in every app. No vision model needed. No pixel-guessing.
+Other computer-use tools take screenshots and guess what's on screen. Ghost OS reads the macOS accessibility tree — structured, labeled data about every element in every app. When the AX tree isn't enough (web apps, dynamic content), it falls back to a local vision model (ShowUI-2B) for visual grounding.
 
 And when it figures out a workflow, it saves it. Other tools repeat the same expensive reasoning every time.
 
 - **Self-learning** — A frontier model figures out the workflow once. A small model runs it forever.
 - **Transparent** — Recipes are JSON. Read every step before running. No black box.
-- **Native** — Accessibility tree, not screenshots. Structured data, not pixel coordinates.
+- **Native** — Accessibility tree first. Vision fallback when needed. Structured data over pixel guessing.
 - **Any app** — Not just browsers. Slack, Finder, Messages — anything on your Mac.
 - **Local** — Your data never leaves your machine.
 - **Open** — MCP protocol. Works with Claude Code, Cursor, VS Code, or any MCP client.
 
 | | | Ghost OS | Anthropic Computer Use | OpenAI Operator | OpenClaw |
 |:---:|------|:--:|:--:|:--:|:--:|
-| 👀 | **How it sees** | Accessibility tree + screenshots | Screenshots only | Screenshots only | Browser DOM |
+| 👀 | **How it sees** | Accessibility tree + local VLM | Screenshots only | Screenshots only | Browser DOM |
 | 🖥️ | **Native apps** | Any macOS app | Any (via pixels) | Browser only | Browser only |
 | 🧠 | **Learns workflows** | JSON recipes | No | No | No |
 | 🔒 | **Data stays local** | Yes | Depends on setup | No (cloud) | Yes |
@@ -65,11 +65,11 @@ brew install ghostwright/ghost-os/ghost-os
 ghost setup
 ```
 
-That's it. `ghost setup` handles permissions, MCP configuration, and recipe installation.
+That's it. `ghost setup` handles permissions, MCP configuration, recipe installation, and vision model setup.
 
 ## How It Works
 
-Ghost OS connects to your AI agent through [MCP](https://modelcontextprotocol.io) and gives it 20 tools to see and operate your Mac. It reads the macOS accessibility tree for structured data about every app, and takes screenshots when visual context is needed. Click, type, scroll, press keys, manage windows. Any app, not just browsers.
+Ghost OS connects to your AI agent through [MCP](https://modelcontextprotocol.io) and gives it 22 tools to see and operate your Mac. It reads the macOS accessibility tree for structured data about every app. For web apps where the AX tree falls short (Gmail, Slack), a local vision model (ShowUI-2B) finds elements visually. Click, type, scroll, press keys, manage windows. Any app, not just browsers.
 
 ```
 You:     "Download the latest paper on chain-of-thought prompting from arXiv"
@@ -97,7 +97,7 @@ ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":
 - Chain recipes together. The agent knows when to call what.
 - Write once with Claude or GPT-4. Run forever with Haiku.
 
-## 20 Tools
+## 22 Tools
 
 | | Tool | What it does |
 |:---:|------|-------------|
@@ -108,6 +108,8 @@ ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":
 | 🔍 | `ghost_inspect` | Get complete metadata for one element: role, position, actions, DOM id, editable state |
 | 🔍 | `ghost_element_at` | Identify what element is at a specific screen coordinate |
 | 📸 | `ghost_screenshot` | Capture a window screenshot for visual debugging |
+| 👁️ | `ghost_ground` | Find element coordinates using vision (ShowUI-2B). Works when AX tree can't find web elements |
+| 👁️ | `ghost_parse_screen` | Detect all interactive elements via vision |
 | 🎯 | `ghost_click` | Click an element by name, DOM id, or screen coordinates |
 | ⌨️ | `ghost_type` | Type text into a specific field by name, or at the current cursor |
 | ⌨️ | `ghost_press` | Press a single key like Return, Tab, Escape, or arrow keys |
@@ -127,12 +129,15 @@ ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":
 ```bash
 $ ghost doctor
 
-  ✓ Accessibility: granted
-  ✓ Screen Recording: granted
-  ✓ Processes: 1 ghost MCP process
-  ✓ MCP Config: ghost-os connected
-  ✓ Recipes: 4 installed
-  ✓ AX Tree: 12/12 apps readable
+  [ok] Accessibility: granted
+  [ok] Screen Recording: granted
+  [ok] Processes: 1 ghost MCP process
+  [ok] MCP Config: ghost-os configured
+  [ok] Recipes: 5 installed
+  [ok] AX Tree: 12/12 apps readable
+  [ok] ghost-vision: /opt/homebrew/bin/ghost-vision
+  [ok] ShowUI-2B model: ~/.ghost-os/models/ShowUI-2B (2.8 GB)
+  [ok] Vision Sidecar: not running (auto-starts when needed)
 
   All checks passed. Ghost OS is healthy.
 ```
@@ -155,15 +160,16 @@ AI Agent (Claude Code, Cursor, any MCP client)
     │
     │ MCP Protocol (stdio)
     │
-Ghost OS MCP Server
+Ghost OS MCP Server (Swift)
     │
-    ├── Perception ── see what's on screen
-    ├── Actions ───── click, type, scroll, keys
-    ├── Recipes ───── self-learning workflows
-    └── AXorcist ──── macOS accessibility engine
+    ├── Perception ──── see what's on screen (AX tree)
+    ├── Vision ──────── visual grounding (ShowUI-2B, local)
+    ├── Actions ─────── click, type, scroll, keys
+    ├── Recipes ─────── self-learning workflows
+    └── AXorcist ────── macOS accessibility engine
 ```
 
-~4,500 lines of Swift. Built on [AXorcist](https://github.com/steipete/AXorcist) by [@steipete](https://github.com/steipete).
+~5,000 lines of Swift + Python vision sidecar. Built on [AXorcist](https://github.com/steipete/AXorcist) by [@steipete](https://github.com/steipete).
 
 ## Contributing
 

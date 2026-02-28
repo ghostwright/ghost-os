@@ -27,7 +27,7 @@ Usage:
   python3 server.py --version                 # Print version
 """
 
-__version__ = "2.0.4"
+__version__ = "2.0.5"
 
 import argparse
 import base64
@@ -81,7 +81,7 @@ def resolve_model_path(explicit_path=None):
             # Verify it looks like a real model directory
             safetensors = os.path.join(path, "model.safetensors")
             config = os.path.join(path, "config.json")
-            if os.path.isfile(safetensors) or os.path.isfile(config):
+            if os.path.isfile(safetensors) and os.path.isfile(config):
                 return path
 
     # Return first candidate for error message
@@ -152,7 +152,9 @@ def _vlm_ground(image_path: str, description: str, screen_w: float, screen_h: fl
     img = Image.open(image_path)
     max_edge = 1280
     w, h = img.size
-    resized_path = tempfile.mktemp(suffix=".jpg", prefix="ghost_vlm_")
+    _f = tempfile.NamedTemporaryFile(suffix=".jpg", prefix="ghost_vlm_", delete=False)
+    resized_path = _f.name
+    _f.close()
     if max(w, h) > max_edge:
         scale = max_edge / max(w, h)
         img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
@@ -268,6 +270,8 @@ def _idle_shutdown():
 class VisionHandler(BaseHTTPRequestHandler):
     """Handles HTTP requests for the vision sidecar."""
 
+    MAX_BODY_SIZE = 50 * 1024 * 1024  # 50 MB
+
     def do_GET(self):
         _reset_idle_timer()
         if self.path == "/health":
@@ -279,6 +283,9 @@ class VisionHandler(BaseHTTPRequestHandler):
         _reset_idle_timer()
         try:
             content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > self.MAX_BODY_SIZE:
+                self._send_json(413, {"error": f"Request too large ({content_length} bytes)"})
+                return
             body = self.rfile.read(content_length)
             data = json.loads(body) if body else {}
         except (json.JSONDecodeError, ValueError) as e:
@@ -370,7 +377,9 @@ class VisionHandler(BaseHTTPRequestHandler):
                 crop = img.crop((px1, py1, px2, py2))
 
                 # Save crop to temp file
-                crop_path = tempfile.mktemp(suffix=".png", prefix="ghost_crop_")
+                _cf = tempfile.NamedTemporaryFile(suffix=".png", prefix="ghost_crop_", delete=False)
+                crop_path = _cf.name
+                _cf.close()
                 crop.save(crop_path)
 
                 # Run VLM on crop with crop dimensions
@@ -390,7 +399,9 @@ class VisionHandler(BaseHTTPRequestHandler):
                     pass
             else:
                 # Full-screen grounding
-                img_path = tempfile.mktemp(suffix=".png", prefix="ghost_full_")
+                _ff = tempfile.NamedTemporaryFile(suffix=".png", prefix="ghost_full_", delete=False)
+                img_path = _ff.name
+                _ff.close()
                 img.save(img_path)
 
                 result = _vlm_ground(img_path, description, screen_w, screen_h)
@@ -559,7 +570,8 @@ def main():
     # Allow port reuse to prevent "Address already in use" on restart
     class ReusableTCPServer(HTTPServer):
         allow_reuse_address = True
-        allow_reuse_port = True
+        # Do NOT set allow_reuse_port -- on Python 3.12+ it enables SO_REUSEPORT
+        # which allows multiple servers on the same port (not what we want).
 
     _server_instance = ReusableTCPServer((HOST, PORT), VisionHandler)
     log(f"Listening on http://{HOST}:{PORT}")

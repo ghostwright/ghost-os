@@ -388,8 +388,9 @@ struct Doctor {
 
         do {
             try process.run()
-            process.waitUntilExit()
+            // Read pipe BEFORE waitUntilExit to avoid deadlock if output exceeds pipe buffer
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             return ShellResult(output: String(data: data, encoding: .utf8) ?? "", exitCode: process.terminationStatus)
         } catch {
             return ShellResult(output: "", exitCode: -1)

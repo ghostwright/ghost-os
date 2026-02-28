@@ -260,14 +260,24 @@ public final class MCPServer {
             return content
         }
 
-        // Try loading from the source directory (development)
-        let sourcePaths = [
-            "/Users/cheema/mcheema/work/future/ghost-os-v2/GHOST-MCP.md",
+        // Try Homebrew share paths
+        let sharePaths = [
+            "/opt/homebrew/share/GHOST-MCP.md",
+            "/opt/homebrew/share/ghost-os/GHOST-MCP.md",
+            "/usr/local/share/GHOST-MCP.md",
+            "/usr/local/share/ghost-os/GHOST-MCP.md",
         ]
-        for path in sourcePaths {
+        for path in sharePaths {
             if let content = try? String(contentsOfFile: path, encoding: .utf8) {
                 return content
             }
+        }
+
+        // Try loading from the source directory (development)
+        let binaryAncestor = ((binaryDir as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+        let devPath = (binaryAncestor as NSString).appendingPathComponent("GHOST-MCP.md")
+        if let content = try? String(contentsOfFile: devPath, encoding: .utf8) {
+            return content
         }
 
         // Fallback minimal instructions

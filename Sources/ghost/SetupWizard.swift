@@ -218,9 +218,14 @@ struct SetupWizard {
 
         // Write config directly — claude mcp add also hangs
         var config: [String: Any] = [:]
-        if let data = FileManager.default.contents(atPath: configPath),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        {
+        if let data = FileManager.default.contents(atPath: configPath) {
+            guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                print("  WARNING: ~/.claude.json contains non-standard JSON.")
+                print("  Please add Ghost OS manually:")
+                print("    claude mcp add ghost-os \(binaryPath) -- mcp")
+                print("")
+                return
+            }
             config = existing
         }
 
@@ -246,10 +251,12 @@ struct SetupWizard {
         // MCP tools are auto-approved globally (no per-session prompts).
         let settingsPath = NSHomeDirectory() + "/.claude/settings.json"
         var settings: [String: Any] = [:]
-        if let data = FileManager.default.contents(atPath: settingsPath),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        {
-            settings = existing
+        if let data = FileManager.default.contents(atPath: settingsPath) {
+            if let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                settings = existing
+            }
+            // If parsing fails, settings stays empty — we'll create a fresh one.
+            // settings.json is machine-generated so non-standard JSON is unlikely.
         }
 
         var allowedTools = settings["allowedTools"] as? [String] ?? []
@@ -483,25 +490,26 @@ struct SetupWizard {
         print("  Destination: \(destDir)")
         print("")
 
-        // Use snapshot_download which handles all files + progress
+        // Use snapshot_download which handles all files + progress.
+        // Pass dest dir as sys.argv[1] to avoid string interpolation injection.
         let downloadScript = """
         import sys
+        dest = sys.argv[1]
         try:
             from huggingface_hub import snapshot_download
             path = snapshot_download(
                 "showlab/ShowUI-2B",
-                local_dir="\(destDir)",
+                local_dir=dest,
                 local_dir_use_symlinks=False,
             )
             print(f"Downloaded to: {path}")
         except ImportError:
-            # Install huggingface_hub if not available
             import subprocess
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "huggingface-hub"])
             from huggingface_hub import snapshot_download
             path = snapshot_download(
                 "showlab/ShowUI-2B",
-                local_dir="\(destDir)",
+                local_dir=dest,
                 local_dir_use_symlinks=False,
             )
             print(f"Downloaded to: {path}")
@@ -510,10 +518,10 @@ struct SetupWizard {
             sys.exit(1)
         """
 
-        let tmpScript = NSTemporaryDirectory() + "ghost_download_model.py"
+        let tmpScript = NSTemporaryDirectory() + "ghost_download_model_\(UUID().uuidString).py"
         try? downloadScript.write(toFile: tmpScript, atomically: true, encoding: .utf8)
 
-        let result = runShellLive(python, args: [tmpScript])
+        let result = runShellLive(python, args: [tmpScript, destDir])
 
         try? FileManager.default.removeItem(atPath: tmpScript)
 
@@ -751,8 +759,9 @@ struct SetupWizard {
 
         do {
             try process.run()
-            process.waitUntilExit()
+            // Read pipe BEFORE waitUntilExit to avoid deadlock if output exceeds pipe buffer
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             let output = String(data: data, encoding: .utf8) ?? ""
             return ShellResult(output: output, exitCode: process.terminationStatus)
         } catch {

@@ -39,8 +39,19 @@ if [[ "${1:-}" == "--debug" ]]; then
     CONFIG="debug"
 fi
 
+# Verify version consistency across all files
+PYTHON_VERSION=$(grep '__version__' "$PROJECT_ROOT/vision-sidecar/server.py" | head -1 | cut -d'"' -f2)
+BASH_VERSION=$(grep '^VERSION=' "$PROJECT_ROOT/vision-sidecar/ghost-vision" | cut -d'"' -f2)
+if [[ "$VERSION" != "$PYTHON_VERSION" || "$VERSION" != "$BASH_VERSION" ]]; then
+    echo "ERROR: Version mismatch!" >&2
+    echo "  Types.swift:  $VERSION" >&2
+    echo "  server.py:    $PYTHON_VERSION" >&2
+    echo "  ghost-vision: $BASH_VERSION" >&2
+    exit 1
+fi
+
 TARBALL_NAME="ghost-os-${VERSION}-macos-arm64.tar.gz"
-STAGE_DIR="$PROJECT_ROOT/.build/release-stage"
+STAGE_DIR="$PROJECT_ROOT/.build/${CONFIG}-stage"
 
 echo "Building Ghost OS v${VERSION} ($CONFIG)"
 echo "========================================"
