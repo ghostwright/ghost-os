@@ -1,8 +1,9 @@
 # Ghost OS v2 - MCP Agent Instructions
 
 You have Ghost OS, a tool that lets you see and operate any macOS application
-through the accessibility tree. No screenshots needed for navigation. Every button,
-text field, link, and label is available as structured data.
+through the accessibility tree AND visual perception. Every button, text field,
+link, and label is available -- either through the AX tree (native apps) or
+vision-based grounding (web apps where Chrome exposes everything as AXGroup).
 
 ## Rule 1: Always Check Recipes First
 
@@ -70,16 +71,52 @@ ghost_wait condition:"urlContains" value:"inbox" timeout:15 app:"Chrome"
 ghost_wait condition:"elementGone" value:"Loading" app:"Chrome"
 ```
 
-## Rule 6: Handle Failures
+## Rule 6: Vision Fallback for Web Apps
+
+When `ghost_find` or `ghost_click` can't locate an element (common in web apps
+like Gmail, Slack, etc. where Chrome exposes everything as AXGroup), Ghost OS
+automatically falls back to VLM-based vision grounding if the vision sidecar
+is running.
+
+You can also use vision tools directly:
+
+### ghost_ground - Find element by visual description
+```
+ghost_ground description:"Compose button" app:"Chrome"
+→ Returns: {x: 86, y: 223, confidence: 0.8, method: "full-screen"}
+```
+
+For overlapping UI panels (e.g., compose popup over inbox), use crop_box
+to narrow the search area for dramatically better accuracy:
+```
+ghost_ground description:"Send button" app:"Chrome" crop_box:[510, 168, 840, 390]
+→ Returns: {x: 620, y: 350, confidence: 0.95, method: "crop-based"}
+```
+
+Then click at the returned coordinates:
+```
+ghost_click x:86 y:223 app:"Chrome"
+```
+
+### ghost_parse_screen - Detect all interactive elements
+```
+ghost_parse_screen app:"Chrome"
+→ Returns list of all detected UI elements with bounding boxes
+```
+Note: Full YOLO detection is not yet implemented. Use ghost_find for
+AX-based element search, and ghost_ground for visual element finding.
+
+## Rule 7: Handle Failures
 
 If an action fails:
 1. Call `ghost_context` to see current state
 2. Call `ghost_screenshot` for visual confirmation
-3. Try a different approach (different query, coordinates, etc.)
+3. Try `ghost_ground` with a description of what you need to click
+4. Try a different approach (different query, coordinates, etc.)
 
 Don't retry the same thing 5 times. If ghost_click fails, it already tried
-both AX-native and synthetic. The element might not exist, might be hidden,
-or might be blocked by a modal.
+AX-native, synthetic, AND VLM vision grounding. The element might not exist,
+might be hidden, or might be blocked by a modal.
 
 ## Tool Reference
 
@@ -105,3 +142,5 @@ or might be blocked by a modal.
 | ghost_recipe_show | View recipe details | No |
 | ghost_recipe_save | Save new recipe | No |
 | ghost_recipe_delete | Delete recipe | No |
+| ghost_parse_screen | Detect ALL UI elements via vision | No |
+| ghost_ground | Find element coordinates via VLM | No |

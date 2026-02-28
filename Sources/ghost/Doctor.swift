@@ -29,6 +29,7 @@ struct Doctor {
         checkMCPConfig()
         checkRecipes()
         checkAXTree()
+        checkVisionSidecar()
 
         printSummary()
     }
@@ -197,6 +198,38 @@ struct Doctor {
             print("    This usually means Accessibility permission isn't working correctly.")
             print("    Fix: toggle the permission off and on in System Settings")
             issueCount += 1
+        }
+    }
+
+    // MARK: - Vision Sidecar
+
+    private mutating func checkVisionSidecar() {
+        if VisionBridge.isAvailable() {
+            if let health = VisionBridge.healthCheck() {
+                let models = health["models_loaded"] as? [String] ?? []
+                let status = health["status"] as? String ?? "unknown"
+                print("  \u{2713} Vision Sidecar: \(status)")
+                if !models.isEmpty {
+                    print("    Models: \(models.joined(separator: ", "))")
+                }
+            } else {
+                print("  \u{2713} Vision Sidecar: running (health details unavailable)")
+            }
+        } else {
+            print("  ! Vision Sidecar: not running (ghost_ground and ghost_parse_screen won't work)")
+            print("    Start: cd ghost-os-v2/vision-sidecar && python3 server.py &")
+            print("    The sidecar provides VLM-based element grounding for web apps.")
+            warningCount += 1
+        }
+
+        // Check if ShowUI-2B model exists
+        let modelPath = NSHomeDirectory() + "/.shadow/models/llm/ShowUI-2B-bf16-8bit"
+        if FileManager.default.fileExists(atPath: modelPath) {
+            print("  \u{2713} ShowUI-2B model: installed")
+        } else {
+            print("  ! ShowUI-2B model: not installed at \(modelPath)")
+            print("    The VLM model is required for vision grounding.")
+            warningCount += 1
         }
     }
 

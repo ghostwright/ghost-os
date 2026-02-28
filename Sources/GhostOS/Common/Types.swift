@@ -83,12 +83,33 @@ public struct ScreenshotResult: Sendable {
     public let windowTitle: String?
     public let mimeType: String
 
-    public init(base64PNG: String, width: Int, height: Int, windowTitle: String? = nil, mimeType: String = "image/png") {
+    /// Window frame in logical screen coordinates (points).
+    /// Used by VisionPerception to map VLM coordinates back to screen space.
+    public let windowX: Double
+    public let windowY: Double
+    public let windowWidth: Double
+    public let windowHeight: Double
+
+    public init(
+        base64PNG: String,
+        width: Int,
+        height: Int,
+        windowTitle: String? = nil,
+        mimeType: String = "image/png",
+        windowX: Double = 0,
+        windowY: Double = 0,
+        windowWidth: Double = 0,
+        windowHeight: Double = 0
+    ) {
         self.base64PNG = base64PNG
         self.width = width
         self.height = height
         self.windowTitle = windowTitle
         self.mimeType = mimeType
+        self.windowX = windowX
+        self.windowY = windowY
+        self.windowWidth = windowWidth
+        self.windowHeight = windowHeight
     }
 }
 

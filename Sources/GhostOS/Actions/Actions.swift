@@ -102,11 +102,115 @@ public enum Actions {
 
         // Strategy 2: Find element position, synthetic click
         // Need to find the element ourselves to get its position
-        guard let element = findElement(locator: locator, appName: appName) else {
+        let element = findElement(locator: locator, appName: appName)
+
+        // Strategy 2.5a: CDP fallback — try Chrome DevTools Protocol for web apps.
+        // Much faster than VLM (~50ms vs 3s), but requires Chrome debug port.
+        if element == nil, let query {
+            if CDPBridge.isAvailable(),
+               let cdpElements = CDPBridge.findElements(query: query),
+               let firstMatch = cdpElements.first
+            {
+                let viewportX = firstMatch["centerX"] as? Int ?? 0
+                let viewportY = firstMatch["centerY"] as? Int ?? 0
+
+                // Get Chrome window origin for coordinate conversion
+                let windowOrigin: (x: Double, y: Double)
+                if let appName,
+                   let app = Perception.findApp(named: appName),
+                   let appElement = Element.application(for: app.processIdentifier),
+                   let window = appElement.focusedWindow(),
+                   let pos = window.position()
+                {
+                    windowOrigin = (Double(pos.x), Double(pos.y))
+                } else {
+                    windowOrigin = (0, 0)
+                }
+
+                let screenCoords = CDPBridge.viewportToScreen(
+                    viewportX: Double(viewportX),
+                    viewportY: Double(viewportY),
+                    windowX: windowOrigin.x,
+                    windowY: windowOrigin.y
+                )
+
+                if let appName {
+                    _ = FocusManager.focus(appName: appName)
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+
+                do {
+                    try InputDriver.click(
+                        at: CGPoint(x: screenCoords.x, y: screenCoords.y),
+                        button: mouseButton,
+                        count: clickCount
+                    )
+                    Thread.sleep(forTimeInterval: 0.15)
+                    Log.info("CDP click: '\(query)' at (\(Int(screenCoords.x)), \(Int(screenCoords.y)))")
+                    return ToolResult(
+                        success: true,
+                        data: [
+                            "method": "cdp-grounded",
+                            "element": query,
+                            "x": screenCoords.x,
+                            "y": screenCoords.y,
+                            "match_type": firstMatch["matchType"] as? String ?? "unknown",
+                        ]
+                    )
+                } catch {
+                    Log.warn("CDP click failed: \(error)")
+                }
+            }
+        }
+
+        // Strategy 2.5b: Vision fallback — if AX AND CDP can't find it, try VLM grounding.
+        // This handles web apps (Chrome AXGroup elements) and dynamic content.
+        if element == nil, let query {
+            if let visionResult = VisionPerception.visionFallbackClick(
+                query: query,
+                appName: appName
+            ) {
+                // VLM found the element — click at the grounded coordinates
+                let vx = visionResult.data?["x"] as? Double ?? 0
+                let vy = visionResult.data?["y"] as? Double ?? 0
+
+                if let appName {
+                    _ = FocusManager.focus(appName: appName)
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+
+                do {
+                    try InputDriver.click(
+                        at: CGPoint(x: vx, y: vy),
+                        button: mouseButton,
+                        count: clickCount
+                    )
+                    Thread.sleep(forTimeInterval: 0.15)
+                    return ToolResult(
+                        success: true,
+                        data: [
+                            "method": "vlm-grounded",
+                            "element": query,
+                            "x": vx,
+                            "y": vy,
+                            "confidence": visionResult.data?["confidence"] as? Double ?? 0,
+                            "inference_ms": visionResult.data?["inference_ms"] as? Int ?? 0,
+                        ]
+                    )
+                } catch {
+                    return ToolResult(
+                        success: false,
+                        error: "VLM-grounded click at (\(Int(vx)), \(Int(vy))) failed: \(error)"
+                    )
+                }
+            }
+        }
+
+        guard let element else {
             return ToolResult(
                 success: false,
                 error: "Element '\(query ?? domId ?? "")' not found in \(appName ?? "frontmost app")",
-                suggestion: "Use ghost_find to see what elements are available"
+                suggestion: "Use ghost_find to see what elements are available, or ghost_ground for visual search"
             )
         }
 

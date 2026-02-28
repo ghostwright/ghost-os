@@ -13,6 +13,18 @@ import Foundation
 /// Perception module: reading the screen state for the agent.
 public enum Perception {
 
+    /// Set a per-element AX messaging timeout before deep tree walks.
+    /// Chrome/Electron apps can hang on AX calls for specific elements.
+    /// Call this on the app Element before any recursive search.
+    private static func setElementTimeout(_ element: Element, seconds: Float = 3.0) {
+        element.setMessagingTimeout(seconds)
+    }
+
+    /// Reset element timeout to the global default (0 = use global timeout).
+    private static func resetElementTimeout(_ element: Element) {
+        element.setMessagingTimeout(0)
+    }
+
     // MARK: - ghost_context
 
     /// Get orientation context: focused app, window, URL, focused element, visible interactive elements.
@@ -107,6 +119,12 @@ public enum Perception {
 
         let maxDepth = min(depth ?? GhostConstants.semanticDepthBudget, GhostConstants.maxSearchDepth)
 
+        // Set per-element timeout for this search. Deep tree walks on Chrome
+        // can hang on individual AX calls; this ensures each call returns
+        // within 3 seconds rather than blocking forever.
+        setElementTimeout(searchRoot, seconds: 3.0)
+        defer { resetElementTimeout(searchRoot) }
+
         // Strategy 1: DOM ID (most precise, bypasses depth limits)
         if let domId {
             if let element = findByDOMId(domId, in: searchRoot, maxDepth: maxDepth) {
@@ -142,6 +160,46 @@ public enum Perception {
         // Also try semantic-depth search if AXorcist search yields nothing
         if results.isEmpty, let query {
             results = semanticDepthSearch(query: query, role: role, in: searchRoot, maxDepth: maxDepth)
+        }
+
+        // CDP fallback: if AX search found nothing and we're in Chrome/Electron,
+        // try Chrome DevTools Protocol for instant DOM-based element finding.
+        if results.isEmpty, let query {
+            if let cdpResults = cdpFallbackFind(query: query, appName: appName) {
+                return ToolResult(
+                    success: true,
+                    data: [
+                        "elements": cdpResults,
+                        "count": cdpResults.count,
+                        "total_matches": cdpResults.count,
+                        "source": "cdp-fallback",
+                    ],
+                    suggestion: "Elements found via Chrome DevTools Protocol (AX tree search found nothing). " +
+                                "Use ghost_click with the x/y coordinates shown in the position field."
+                )
+            }
+        }
+
+        // Vision fallback: if AX and CDP both failed, try VLM grounding.
+        // This handles web apps where Chrome exposes everything as AXGroup.
+        if results.isEmpty, let query {
+            if let visionResults = VisionPerception.visionFallbackFind(
+                query: query,
+                appName: appName
+            ) {
+                // Return VLM-grounded results directly (synthetic element summaries)
+                return ToolResult(
+                    success: true,
+                    data: [
+                        "elements": visionResults,
+                        "count": visionResults.count,
+                        "total_matches": visionResults.count,
+                        "source": "vision-fallback",
+                    ],
+                    suggestion: "Elements found by VLM vision grounding (AX tree search found nothing). " +
+                                "Use ghost_click with the x/y coordinates shown in the position field."
+                )
+            }
         }
 
         // Deduplicate by element identity (Chrome multiple windows cause duplicates)
@@ -190,6 +248,10 @@ public enum Perception {
         }
 
         let maxDepth = depth ?? GhostConstants.semanticDepthBudget
+
+        // Set per-element timeout for the read operation.
+        setElementTimeout(searchRoot, seconds: 3.0)
+        defer { resetElementTimeout(searchRoot) }
 
         // If query provided, narrow to that element first
         var readRoot = searchRoot
@@ -307,7 +369,26 @@ public enum Perception {
 
         // ScreenCaptureKit is async - bridge to sync with RunLoop spinning
         let pid = targetApp.processIdentifier
+
+        // First attempt: try capturing without focus change
+        if let result = captureScreenshotSync(pid: pid, fullResolution: fullResolution) {
+            return screenshotResult(result)
+        }
+
+        // Retry: ScreenCaptureKit can't capture windows in other Spaces.
+        // Briefly focus the app to bring its windows to the current Space,
+        // capture, then restore focus to the original frontmost app.
+        Log.info("Screenshot: retrying after focus for \(targetApp.localizedName ?? "app")")
+        let savedApp = NSWorkspace.shared.frontmostApplication
+        targetApp.activate()
+        Thread.sleep(forTimeInterval: 0.5)  // Allow Space transition to complete
+
         let result = captureScreenshotSync(pid: pid, fullResolution: fullResolution)
+
+        // Restore original focus if we changed it
+        if let savedApp, savedApp.processIdentifier != targetApp.processIdentifier {
+            savedApp.activate()
+        }
 
         guard let result else {
             return ToolResult(
@@ -317,7 +398,11 @@ public enum Perception {
             )
         }
 
-        return ToolResult(
+        return screenshotResult(result)
+    }
+
+    private static func screenshotResult(_ result: ScreenshotResult) -> ToolResult {
+        ToolResult(
             success: true,
             data: [
                 "image": result.base64PNG,
@@ -358,6 +443,11 @@ public enum Perception {
                 suggestion: "Try ghost_focus to bring the app to front first"
             )
         }
+
+        // Set per-element timeout for context building. ghost_context walks
+        // the interactive elements tree; a hung app would block the MCP server.
+        setElementTimeout(appElement, seconds: 3.0)
+        defer { resetElementTimeout(appElement) }
 
         var data: [String: Any] = [
             "app": app.localizedName ?? "Unknown",
@@ -452,7 +542,10 @@ public enum Perception {
         ]
 
         if let appElement = Element.application(for: app.processIdentifier) {
-            if let windows = appElement.windows() {
+            // Use timeout-protected window listing. Some apps (especially
+            // hung ones) block forever on AXWindows. 2s is plenty for
+            // a simple attribute read.
+            if let windows = appElement.windowsWithTimeout(timeout: 2.0) {
                 let windowInfos: [[String: Any]] = windows.compactMap { win in
                     var w: [String: Any] = [:]
                     if let title = win.title() { w["title"] = title }
@@ -567,6 +660,112 @@ public enum Perception {
         }
 
         return info
+    }
+
+    // MARK: - CDP Fallback
+
+    /// Try finding elements via Chrome DevTools Protocol.
+    /// Only works when Chrome is running with --remote-debugging-port=9222.
+    /// Returns elements as dictionaries matching ghost_find's output format,
+    /// with viewport coordinates converted to screen coordinates.
+    private static func cdpFallbackFind(query: String, appName: String?) -> [[String: Any]]? {
+        // Only try CDP for Chrome-based apps
+        guard CDPBridge.isAvailable() else {
+            return nil
+        }
+
+        guard let cdpElements = CDPBridge.findElements(query: query) else {
+            return nil
+        }
+
+        guard !cdpElements.isEmpty else {
+            return nil
+        }
+
+        // Get Chrome window position for coordinate conversion
+        let windowOrigin = chromeWindowOrigin(appName: appName)
+
+        // Convert CDP results to ghost_find format
+        let results: [[String: Any]] = cdpElements.map { el in
+            let viewportX = el["centerX"] as? Int ?? 0
+            let viewportY = el["centerY"] as? Int ?? 0
+
+            // Convert viewport to screen coordinates
+            let screenCoords = CDPBridge.viewportToScreen(
+                viewportX: Double(viewportX),
+                viewportY: Double(viewportY),
+                windowX: windowOrigin.x,
+                windowY: windowOrigin.y
+            )
+
+            var result: [String: Any] = [
+                "name": el["ariaLabel"] as? String ??
+                        el["text"] as? String ??
+                        el["tag"] as? String ?? "unknown",
+                "role": mapCDPRole(el),
+                "position": ["x": Int(screenCoords.x), "y": Int(screenCoords.y)],
+                "size": [
+                    "width": el["width"] as? Int ?? 0,
+                    "height": el["height"] as? Int ?? 0,
+                ],
+                "actionable": el["actionable"] as? Bool ?? false,
+                "source": "cdp",
+                "match_type": el["matchType"] as? String ?? "unknown",
+            ]
+
+            if let domId = el["id"] as? String, !domId.isEmpty {
+                result["dom_id"] = domId
+            }
+            if let className = el["className"] as? String, !className.isEmpty {
+                result["dom_class"] = className
+            }
+
+            return result
+        }
+
+        Log.info("CDP found \(results.count) elements for '\(query)'")
+        return results
+    }
+
+    /// Get Chrome window origin for coordinate conversion.
+    private static func chromeWindowOrigin(appName: String?) -> (x: Double, y: Double) {
+        let name = appName ?? "Chrome"
+        guard let app = findApp(named: name),
+              let appElement = Element.application(for: app.processIdentifier),
+              let window = appElement.focusedWindow(),
+              let pos = window.position()
+        else {
+            return (x: 0, y: 0)
+        }
+        return (x: Double(pos.x), y: Double(pos.y))
+    }
+
+    /// Map CDP tag/role to AX-like role for consistency.
+    private static func mapCDPRole(_ element: [String: Any]) -> String {
+        let tag = element["tag"] as? String ?? ""
+        let role = element["role"] as? String ?? ""
+
+        if !role.isEmpty {
+            switch role {
+            case "button": return "AXButton"
+            case "link": return "AXLink"
+            case "textbox": return "AXTextField"
+            case "tab": return "AXTab"
+            case "checkbox": return "AXCheckBox"
+            case "radio": return "AXRadioButton"
+            case "combobox": return "AXComboBox"
+            default: return "AX\(role.prefix(1).uppercased())\(role.dropFirst())"
+            }
+        }
+
+        switch tag {
+        case "button": return "AXButton"
+        case "a": return "AXLink"
+        case "input": return "AXTextField"
+        case "textarea": return "AXTextArea"
+        case "select": return "AXPopUpButton"
+        default: return "CDPElement"
+        }
     }
 
     // MARK: - Semantic Depth Tunneling

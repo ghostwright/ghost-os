@@ -39,17 +39,37 @@ public enum ScreenCapture {
             return nil
         }
 
-        let pidWindows = content.windows.filter { $0.owningApplication?.processID == pid }
+        // Primary: filter windows by PID
+        var candidateWindows = content.windows.filter { $0.owningApplication?.processID == pid }
+        Log.debug("Screenshot: PID \(pid) matched \(candidateWindows.count) windows")
+
+        // Fallback: if PID matching found nothing, try matching by bundle identifier.
+        // Chrome and Electron apps have multiple helper processes; the main PID
+        // registered with NSWorkspace may not own the actual windows in SCK.
+        if candidateWindows.isEmpty {
+            let targetApp = NSWorkspace.shared.runningApplications.first { $0.processIdentifier == pid }
+            if let bundleId = targetApp?.bundleIdentifier {
+                candidateWindows = content.windows.filter {
+                    $0.owningApplication?.bundleIdentifier == bundleId
+                }
+                Log.debug("Screenshot: bundle \(bundleId) matched \(candidateWindows.count) windows")
+            }
+        }
 
         let window: SCWindow?
         if let title = windowTitle {
-            window = pidWindows.first { $0.title?.localizedCaseInsensitiveContains(title) == true }
+            window = candidateWindows.first { $0.title?.localizedCaseInsensitiveContains(title) == true }
         } else {
-            window = pidWindows
+            window = candidateWindows
                 .filter { $0.frame.width > 100 && $0.frame.height > 100 }
                 .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
         }
+
+        if window == nil {
+            Log.warn("Screenshot: no suitable window found for PID \(pid) (\(candidateWindows.count) candidates)")
+        }
         guard let window else { return nil }
+        Log.debug("Screenshot: window frame=(\(Int(window.frame.origin.x)),\(Int(window.frame.origin.y)),\(Int(window.frame.width)),\(Int(window.frame.height)))")
 
         let config = SCStreamConfiguration()
         config.showsCursor = false
@@ -93,7 +113,11 @@ public enum ScreenCapture {
             width: cgImage.width,
             height: cgImage.height,
             windowTitle: window.title,
-            mimeType: mimeType
+            mimeType: mimeType,
+            windowX: Double(window.frame.origin.x),
+            windowY: Double(window.frame.origin.y),
+            windowWidth: Double(window.frame.width),
+            windowHeight: Double(window.frame.height)
         )
     }
 }

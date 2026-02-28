@@ -10,7 +10,7 @@ public enum MCPTools {
 
     /// All tool definitions as MCP-compatible dictionaries.
     public static func definitions() -> [[String: Any]] {
-        perception + actions + wait + recipes
+        perception + actions + wait + recipes + vision
     }
 
     // MARK: - Perception Tools (7)
@@ -224,6 +224,29 @@ public enum MCPTools {
                 "name": prop("string", "Recipe name to delete."),
             ],
             required: ["name"]
+        ),
+    ]
+
+    // MARK: - Vision Tools (2)
+
+    private static let vision: [[String: Any]] = [
+        tool(
+            name: "ghost_parse_screen",
+            description: "Detect ALL interactive UI elements on screen using vision (YOLO + VLM). Returns bounding boxes, types, and labels. Use when AX tree returns generic elements (web apps in Chrome). Requires the vision sidecar to be running.",
+            properties: [
+                "app": prop("string", "Screenshot specific app window."),
+                "full_resolution": prop("boolean", "Native resolution instead of 1280px resize (default: false)."),
+            ]
+        ),
+        tool(
+            name: "ghost_ground",
+            description: "Find precise screen coordinates for a described UI element using vision (VLM). Use when ghost_find can't locate the element or returns AXGroup elements. Pass a text description of what to click. Requires the vision sidecar to be running.",
+            properties: [
+                "description": prop("string", "What to find (e.g. 'Compose button', 'Send button', 'search field')."),
+                "app": prop("string", "Screenshot specific app window."),
+                "crop_box": propArray("number", "Optional crop region [x1, y1, x2, y2] in logical points. Dramatically improves accuracy for overlapping panels (e.g. compose popup over inbox)."),
+            ],
+            required: ["description"]
         ),
     ]
 

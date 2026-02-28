@@ -5,6 +5,7 @@
 // stdout is captured at init for exclusive MCP use; all other output goes to stderr.
 
 import ApplicationServices
+import AXorcist
 import Foundation
 
 /// MCP server that handles JSON-RPC messages over stdio.
@@ -36,6 +37,12 @@ public final class MCPServer {
         dup2(STDERR_FILENO, STDOUT_FILENO)
         self.mcpOutput = FileHandle(fileDescriptor: savedFD, closeOnDealloc: true)
         self.instructions = Self.loadInstructions()
+
+        // Set global AX messaging timeout. Without this, any AXUIElement
+        // call to a hung/frozen app blocks FOREVER (the default timeout is 0
+        // which means infinite). This is the #1 cause of "MCP gets stuck."
+        // 5 seconds is generous — most AX calls complete in <100ms.
+        AXTimeoutConfiguration.setGlobalTimeout(5.0)
     }
 
     /// Run the MCP server. Blocks forever reading stdin, dispatching tool calls,

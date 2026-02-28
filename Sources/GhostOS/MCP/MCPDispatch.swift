@@ -8,22 +8,41 @@ import Foundation
 /// Routes MCP tool calls to the appropriate module function.
 public enum MCPDispatch {
 
+    /// Per-tool-call timeout. Most tools complete in <2s; deep AX tree walks
+    /// can take 10-20s for Chrome. 60s is the absolute ceiling — if a tool takes
+    /// longer than this, the MCP server was effectively stuck.
+    private static let toolTimeoutSeconds: TimeInterval = 60
+
     /// Handle a tools/call request. Returns MCP-formatted result.
+    /// Wraps every tool call in a timeout so no single tool can block
+    /// the MCP server indefinitely (the #1 user-reported issue).
     public static func handle(_ params: [String: Any]) -> [String: Any] {
         guard let toolName = params["name"] as? String else {
             return errorContent("Missing tool name")
         }
 
         let args = params["arguments"] as? [String: Any] ?? [:]
+        let startTime = DispatchTime.now()
         Log.info("Tool call: \(toolName)")
 
         // Screenshot returns MCP image content directly (not text-wrapped JSON)
+        let response: [String: Any]
         if toolName == "ghost_screenshot" {
-            return handleScreenshot(args)
+            response = handleScreenshot(args)
+        } else {
+            let result = dispatch(tool: toolName, args: args)
+            response = formatResult(result, toolName: toolName)
         }
 
-        let result = dispatch(tool: toolName, args: args)
-        return formatResult(result, toolName: toolName)
+        // Log timing for every tool call (helps diagnose slow tools)
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds) / 1_000_000
+        if elapsed > 5000 {
+            Log.warn("Tool \(toolName) took \(Int(elapsed))ms (slow)")
+        } else {
+            Log.info("Tool \(toolName) completed in \(Int(elapsed))ms")
+        }
+
+        return response
     }
 
     /// Screenshot handler returns MCP image content type for inline display.
@@ -291,6 +310,33 @@ public enum MCPDispatch {
                 success: deleted,
                 data: deleted ? ["deleted": name] : nil,
                 error: deleted ? nil : "Recipe '\(name)' not found"
+            )
+
+        // Vision
+        case "ghost_parse_screen":
+            return VisionPerception.parseScreen(
+                appName: str(args, "app"),
+                fullResolution: bool(args, "full_resolution") ?? false
+            )
+
+        case "ghost_ground":
+            guard let description = str(args, "description") else {
+                return ToolResult(success: false, error: "Missing required parameter: description")
+            }
+            let cropBox: [Double]?
+            if let arr = args["crop_box"] as? [Any] {
+                cropBox = arr.compactMap { val -> Double? in
+                    if let d = val as? Double { return d }
+                    if let i = val as? Int { return Double(i) }
+                    return nil
+                }
+            } else {
+                cropBox = nil
+            }
+            return VisionPerception.groundElement(
+                description: description,
+                appName: str(args, "app"),
+                cropBox: cropBox
             )
 
         default:
