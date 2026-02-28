@@ -19,7 +19,7 @@ struct Doctor {
     mutating func run() {
         print("")
         print("  Ghost OS Doctor")
-        print("  ══════════════════════════════════")
+        print("  ======================================")
         print("")
 
         checkBinary()
@@ -29,6 +29,8 @@ struct Doctor {
         checkMCPConfig()
         checkRecipes()
         checkAXTree()
+        checkVisionBinary()
+        checkShowUIModel()
         checkVisionSidecar()
 
         printSummary()
@@ -47,9 +49,9 @@ struct Doctor {
 
     private mutating func checkAccessibility() {
         if AXIsProcessTrusted() {
-            print("  ✓ Accessibility: granted")
+            print("  [ok] Accessibility: granted")
         } else {
-            print("  ✗ Accessibility: NOT GRANTED")
+            print("  [FAIL] Accessibility: NOT GRANTED")
             print("    Fix: System Settings > Privacy & Security > Accessibility")
             print("    Add your terminal app (\(detectHostApp()))")
             issueCount += 1
@@ -60,9 +62,9 @@ struct Doctor {
 
     private mutating func checkScreenRecording() {
         if ScreenCapture.hasPermission() {
-            print("  ✓ Screen Recording: granted")
+            print("  [ok] Screen Recording: granted")
         } else {
-            print("  ! Screen Recording: not granted (screenshots won't work)")
+            print("  [!] Screen Recording: not granted (screenshots won't work)")
             print("    Fix: System Settings > Privacy & Security > Screen Recording")
             print("    Add your terminal app (\(detectHostApp()))")
             warningCount += 1
@@ -76,11 +78,11 @@ struct Doctor {
         let lines = result.output.split(separator: "\n").map(String.init)
 
         if lines.isEmpty {
-            print("  ✓ Processes: no ghost MCP processes running")
+            print("  [ok] Processes: no ghost MCP processes running")
         } else if lines.count == 1 {
-            print("  ✓ Processes: 1 ghost MCP process (PID: \(lines[0].split(separator: " ").first ?? "?"))")
+            print("  [ok] Processes: 1 ghost MCP process (PID: \(lines[0].split(separator: " ").first ?? "?"))")
         } else {
-            print("  ✗ Processes: \(lines.count) ghost MCP processes found (expect 0 or 1)")
+            print("  [FAIL] Processes: \(lines.count) ghost MCP processes found (expect 0 or 1)")
             for line in lines {
                 let parts = line.split(separator: " ")
                 let pid = parts.first ?? "?"
@@ -101,7 +103,7 @@ struct Doctor {
     private mutating func checkMCPConfig() {
         let result = runShell("which claude 2>/dev/null")
         if result.exitCode != 0 {
-            print("  ! Claude Code CLI: not found")
+            print("  [!] Claude Code CLI: not found")
             print("    Install from: https://claude.ai/download")
             warningCount += 1
             return
@@ -116,10 +118,10 @@ struct Doctor {
            let ghostConfig = mcpServers["ghost-os"] as? [String: Any]
         {
             let command = ghostConfig["command"] as? String ?? "(unknown)"
-            print("  ✓ MCP Config: ghost-os configured")
+            print("  [ok] MCP Config: ghost-os configured")
             print("    Binary: \(command)")
         } else {
-            print("  ✗ MCP Config: ghost-os not configured")
+            print("  [FAIL] MCP Config: ghost-os not configured")
             let binaryPath = resolveBinaryPath()
             print("    Fix: claude mcp add ghost-os \(binaryPath) -- mcp")
             issueCount += 1
@@ -131,7 +133,7 @@ struct Doctor {
     private mutating func checkRecipes() {
         let recipesDir = NSHomeDirectory() + "/.ghost-os/recipes"
         if !FileManager.default.fileExists(atPath: recipesDir) {
-            print("  ✗ Recipes: directory missing (~/.ghost-os/recipes/)")
+            print("  [FAIL] Recipes: directory missing (~/.ghost-os/recipes/)")
             print("    Fix: ghost setup (installs bundled recipes)")
             issueCount += 1
             return
@@ -143,7 +145,7 @@ struct Doctor {
 
         if files.count > recipes.count {
             let broken = files.count - recipes.count
-            print("  ! Recipes: \(recipes.count) loaded, \(broken) failed to decode")
+            print("  [!] Recipes: \(recipes.count) loaded, \(broken) failed to decode")
             // Find the broken ones
             let decoder = JSONDecoder()
             for file in files where file.hasSuffix(".json") {
@@ -159,7 +161,7 @@ struct Doctor {
             }
             warningCount += 1
         } else {
-            print("  ✓ Recipes: \(recipes.count) installed")
+            print("  [ok] Recipes: \(recipes.count) installed")
             for recipe in recipes.prefix(10) {
                 print("    - \(recipe.name): \(recipe.steps.count) steps")
             }
@@ -189,15 +191,112 @@ struct Doctor {
         }
 
         if readable > 0 {
-            print("  ✓ AX Tree: \(readable)/\(apps.count) apps readable")
+            print("  [ok] AX Tree: \(readable)/\(apps.count) apps readable")
             if !unreadable.isEmpty && unreadable.count <= 3 {
                 print("    Unreadable: \(unreadable.joined(separator: ", ")) (may need focus)")
             }
         } else {
-            print("  ✗ AX Tree: no apps readable")
+            print("  [FAIL] AX Tree: no apps readable")
             print("    This usually means Accessibility permission isn't working correctly.")
             print("    Fix: toggle the permission off and on in System Settings")
             issueCount += 1
+        }
+    }
+
+    // MARK: - Vision Binary
+
+    private mutating func checkVisionBinary() {
+        let candidates = [
+            "/opt/homebrew/bin/ghost-vision",
+            "/usr/local/bin/ghost-vision",
+            (ProcessInfo.processInfo.arguments[0] as NSString)
+                .deletingLastPathComponent + "/ghost-vision",
+        ]
+
+        var found = false
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                print("  [ok] ghost-vision: \(path)")
+                found = true
+                break
+            }
+        }
+
+        if !found {
+            // Check venv fallback
+            let venvPython = NSHomeDirectory() + "/.ghost-os/venv/bin/python3"
+            if FileManager.default.isExecutableFile(atPath: venvPython) {
+                let result = runShell("\(venvPython) -c 'import mlx_vlm; print(\"ok\")' 2>/dev/null")
+                if result.exitCode == 0 && result.output.contains("ok") {
+                    print("  [ok] Vision Python: ~/.ghost-os/venv/ (mlx_vlm available)")
+                    found = true
+                }
+            }
+
+            if !found {
+                // Check system Python
+                let result = runShell("python3 -c 'import mlx_vlm; print(\"ok\")' 2>/dev/null")
+                if result.exitCode == 0 && result.output.contains("ok") {
+                    print("  [ok] Vision Python: system python3 (mlx_vlm available)")
+                    found = true
+                }
+            }
+        }
+
+        if !found {
+            print("  [!] ghost-vision: not found")
+            print("    Vision grounding (ghost_ground) won't work.")
+            print("    Fix: ghost setup (sets up Python environment)")
+            warningCount += 1
+        }
+    }
+
+    // MARK: - ShowUI-2B Model
+
+    private mutating func checkShowUIModel() {
+        if let modelPath = VisionBridge.findModelPath() {
+            // Check file sizes
+            let safetensorsPath = (modelPath as NSString).appendingPathComponent("model.safetensors")
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: safetensorsPath),
+               let size = attrs[.size] as? UInt64
+            {
+                let sizeGB = Double(size) / 1_000_000_000
+                if sizeGB > 1.0 {
+                    print("  [ok] ShowUI-2B model: \(modelPath) (\(String(format: "%.1f", sizeGB)) GB)")
+                } else {
+                    print("  [!] ShowUI-2B model: file seems too small (\(String(format: "%.2f", sizeGB)) GB)")
+                    print("    Expected: ~2.8 GB. May be incomplete download.")
+                    print("    Fix: rm -rf \(modelPath) && ghost setup")
+                    warningCount += 1
+                }
+            } else {
+                print("  [!] ShowUI-2B model: directory exists but model.safetensors missing")
+                print("    Path: \(modelPath)")
+                print("    Fix: rm -rf \(modelPath) && ghost setup")
+                warningCount += 1
+            }
+
+            // Check required files
+            let requiredFiles = ["config.json", "tokenizer.json", "tokenizer_config.json"]
+            var missingFiles: [String] = []
+            for file in requiredFiles {
+                let filePath = (modelPath as NSString).appendingPathComponent(file)
+                if !FileManager.default.fileExists(atPath: filePath) {
+                    missingFiles.append(file)
+                }
+            }
+            if !missingFiles.isEmpty {
+                print("  [!] ShowUI-2B model: missing files: \(missingFiles.joined(separator: ", "))")
+                warningCount += 1
+            }
+        } else {
+            print("  [!] ShowUI-2B model: not found")
+            print("    Checked:")
+            print("      /opt/homebrew/share/ghost-os/models/ShowUI-2B/")
+            print("      ~/.ghost-os/models/ShowUI-2B/")
+            print("      ~/.shadow/models/llm/ShowUI-2B-bf16-8bit/")
+            print("    Fix: ghost setup (downloads the model)")
+            warningCount += 1
         }
     }
 
@@ -208,28 +307,24 @@ struct Doctor {
             if let health = VisionBridge.healthCheck() {
                 let models = health["models_loaded"] as? [String] ?? []
                 let status = health["status"] as? String ?? "unknown"
-                print("  \u{2713} Vision Sidecar: \(status)")
+                let version = health["version"] as? String
+                let pid = health["pid"] as? Int
+                var detail = status
+                if let v = version { detail += " v\(v)" }
+                if let p = pid { detail += " (PID \(p))" }
+                print("  [ok] Vision Sidecar: \(detail)")
                 if !models.isEmpty {
                     print("    Models: \(models.joined(separator: ", "))")
                 }
+                if let idleTimeout = health["idle_timeout"] as? Int, idleTimeout > 0 {
+                    print("    Auto-exit: after \(idleTimeout)s idle")
+                }
             } else {
-                print("  \u{2713} Vision Sidecar: running (health details unavailable)")
+                print("  [ok] Vision Sidecar: running (health details unavailable)")
             }
         } else {
-            print("  ! Vision Sidecar: not running (ghost_ground and ghost_parse_screen won't work)")
-            print("    Start: cd ghost-os-v2/vision-sidecar && python3 server.py &")
-            print("    The sidecar provides VLM-based element grounding for web apps.")
-            warningCount += 1
-        }
-
-        // Check if ShowUI-2B model exists
-        let modelPath = NSHomeDirectory() + "/.shadow/models/llm/ShowUI-2B-bf16-8bit"
-        if FileManager.default.fileExists(atPath: modelPath) {
-            print("  \u{2713} ShowUI-2B model: installed")
-        } else {
-            print("  ! ShowUI-2B model: not installed at \(modelPath)")
-            print("    The VLM model is required for vision grounding.")
-            warningCount += 1
+            print("  [ok] Vision Sidecar: not running (auto-starts when needed)")
+            print("    ghost_ground will start the sidecar automatically on first call.")
         }
     }
 

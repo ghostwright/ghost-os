@@ -1,0 +1,97 @@
+#!/bin/bash
+# ghost-vision — Launcher for Ghost OS Vision Sidecar
+#
+# Finds the best Python environment (venv > system) and runs server.py.
+# Installed to /opt/homebrew/bin/ghost-vision by the Homebrew formula.
+#
+# Usage:
+#   ghost-vision                    # Start server (default port 9876)
+#   ghost-vision --port 9877        # Custom port
+#   ghost-vision --health-check     # Test model loading, then exit
+#   ghost-vision --version          # Print version
+
+set -euo pipefail
+
+VERSION="2.0.4"
+
+# Find server.py in order of priority
+find_server_script() {
+    local candidates=(
+        # Homebrew install
+        "/opt/homebrew/share/ghost-os/vision-sidecar/server.py"
+        "/usr/local/share/ghost-os/vision-sidecar/server.py"
+        # Next to the ghost-vision script
+        "$(dirname "$0")/../share/ghost-os/vision-sidecar/server.py"
+        # Development
+        "$(dirname "$0")/../vision-sidecar/server.py"
+    )
+
+    for path in "${candidates[@]}"; do
+        if [[ -f "$path" ]]; then
+            echo "$path"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Find the best Python with mlx_vlm
+find_python() {
+    # Priority 1: Ghost OS venv
+    local venv_python="$HOME/.ghost-os/venv/bin/python3"
+    if [[ -x "$venv_python" ]]; then
+        # Verify mlx_vlm is available
+        if "$venv_python" -c "import mlx_vlm" 2>/dev/null; then
+            echo "$venv_python"
+            return 0
+        fi
+    fi
+
+    # Priority 2: System python3 with mlx_vlm
+    local sys_python
+    for sys_python in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+        if [[ -x "$sys_python" ]]; then
+            if "$sys_python" -c "import mlx_vlm" 2>/dev/null; then
+                echo "$sys_python"
+                return 0
+            fi
+        fi
+    done
+
+    # Priority 3: Whatever python3 is on PATH
+    if command -v python3 &>/dev/null; then
+        if python3 -c "import mlx_vlm" 2>/dev/null; then
+            echo "$(command -v python3)"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Handle --version before anything else
+if [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
+    echo "ghost-vision $VERSION"
+    exit 0
+fi
+
+# Find server.py
+SERVER_SCRIPT=$(find_server_script) || {
+    echo "ERROR: Cannot find vision sidecar server.py" >&2
+    echo "Expected at: /opt/homebrew/share/ghost-os/vision-sidecar/server.py" >&2
+    echo "Run: ghost setup" >&2
+    exit 1
+}
+
+# Find Python
+PYTHON=$(find_python) || {
+    echo "ERROR: Cannot find Python with mlx_vlm installed" >&2
+    echo "" >&2
+    echo "Run 'ghost setup' to create the vision environment, or install manually:" >&2
+    echo "  python3 -m venv ~/.ghost-os/venv" >&2
+    echo "  ~/.ghost-os/venv/bin/pip install mlx mlx-vlm transformers Pillow" >&2
+    exit 1
+}
+
+exec "$PYTHON" "$SERVER_SCRIPT" "$@"

@@ -17,26 +17,76 @@ Endpoints:
 
 The server uses Python's built-in http.server to minimize dependencies.
 Models are loaded lazily on first request and kept warm in memory.
+
+Usage:
+  python3 server.py                           # Default: port 9876, auto-detect model
+  python3 server.py --port 9877               # Custom port
+  python3 server.py --model-path /path/to/model  # Explicit model path
+  python3 server.py --idle-timeout 600        # Auto-exit after 10 min idle (default)
+  python3 server.py --health-check            # Test model loading, then exit
+  python3 server.py --version                 # Print version
 """
 
+__version__ = "2.0.4"
+
+import argparse
 import base64
 import io
 import json
 import os
 import re
+import signal
 import sys
 import tempfile
 import time
 import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Timer
 
 # ── Configuration ──────────────────────────────────────────────────
 
+# These are set by parse_args() before anything else runs
 HOST = "127.0.0.1"
-PORT = int(os.environ.get("GHOST_VISION_PORT", "9876"))
-MODEL_PATH = str(Path.home() / ".shadow/models/llm/ShowUI-2B-bf16-8bit")
+PORT = 9876
+MODEL_PATH = ""
+IDLE_TIMEOUT = 600  # seconds (0 = no timeout)
+
+# ── Model Path Resolution ─────────────────────────────────────────
+
+def resolve_model_path(explicit_path=None):
+    """
+    Find the ShowUI-2B model in order of priority:
+      1. Explicit --model-path argument
+      2. /opt/homebrew/share/ghost-os/models/ShowUI-2B/ (Homebrew install)
+      3. ~/.ghost-os/models/ShowUI-2B/ (user-local install)
+      4. ~/.shadow/models/llm/ShowUI-2B-bf16-8bit/ (legacy Shadow path)
+
+    Returns the first path that exists and contains model.safetensors,
+    or the first candidate path (for error messages) if none found.
+    """
+    candidates = []
+
+    if explicit_path:
+        candidates.append(explicit_path)
+
+    candidates.extend([
+        "/opt/homebrew/share/ghost-os/models/ShowUI-2B",
+        str(Path.home() / ".ghost-os/models/ShowUI-2B"),
+        str(Path.home() / ".shadow/models/llm/ShowUI-2B-bf16-8bit"),
+    ])
+
+    for path in candidates:
+        if os.path.isdir(path):
+            # Verify it looks like a real model directory
+            safetensors = os.path.join(path, "model.safetensors")
+            config = os.path.join(path, "config.json")
+            if os.path.isfile(safetensors) or os.path.isfile(config):
+                return path
+
+    # Return first candidate for error message
+    return candidates[0] if candidates else str(Path.home() / ".ghost-os/models/ShowUI-2B")
+
 
 # ── Model State (lazy-loaded, thread-safe) ─────────────────────────
 
@@ -186,18 +236,47 @@ def _vlm_ground(image_path: str, description: str, screen_w: float, screen_h: fl
     }
 
 
+# ── Idle Timeout ──────────────────────────────────────────────────
+
+_idle_timer = None
+_idle_lock = Lock()
+
+
+def _reset_idle_timer():
+    """Reset the idle timeout. Called on every request."""
+    global _idle_timer
+    if IDLE_TIMEOUT <= 0:
+        return
+
+    with _idle_lock:
+        if _idle_timer is not None:
+            _idle_timer.cancel()
+        _idle_timer = Timer(IDLE_TIMEOUT, _idle_shutdown)
+        _idle_timer.daemon = True
+        _idle_timer.start()
+
+
+def _idle_shutdown():
+    """Called when idle timeout expires. Gracefully exits."""
+    log(f"Idle timeout ({IDLE_TIMEOUT}s) reached. Shutting down.")
+    # Send SIGTERM to ourselves for clean shutdown
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
 # ── HTTP Request Handler ───────────────────────────────────────────
 
 class VisionHandler(BaseHTTPRequestHandler):
     """Handles HTTP requests for the vision sidecar."""
 
     def do_GET(self):
+        _reset_idle_timer()
         if self.path == "/health":
             self._handle_health()
         else:
             self._send_json(404, {"error": f"Not found: {self.path}"})
 
     def do_POST(self):
+        _reset_idle_timer()
         try:
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
@@ -223,10 +302,13 @@ class VisionHandler(BaseHTTPRequestHandler):
         status = "ready" if _vlm_model is not None else "idle"
         self._send_json(200, {
             "status": status,
+            "version": __version__,
             "models_loaded": models,
             "model_path": MODEL_PATH,
             "model_exists": os.path.isdir(MODEL_PATH),
             "vlm_load_error": _vlm_load_error,
+            "idle_timeout": IDLE_TIMEOUT,
+            "pid": os.getpid(),
         })
 
     def _handle_ground(self, data: dict):
@@ -374,33 +456,122 @@ def log(msg: str):
     print(f"[{ts}] [VISION] {msg}", file=sys.stderr, flush=True)
 
 
+# ── Signal Handling ────────────────────────────────────────────────
+
+_server_instance = None
+
+
+def _signal_handler(signum, frame):
+    """Handle SIGTERM and SIGINT for clean shutdown."""
+    signame = signal.Signals(signum).name
+    log(f"Received {signame}, shutting down...")
+    if _server_instance is not None:
+        # shutdown() must be called from a different thread than serve_forever()
+        import threading
+        threading.Thread(target=_server_instance.shutdown, daemon=True).start()
+    else:
+        sys.exit(0)
+
+
+# ── CLI Argument Parsing ──────────────────────────────────────────
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        prog="ghost-vision",
+        description="Ghost OS Vision Sidecar — VLM grounding server for UI element detection",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"ghost-vision {__version__}",
+    )
+    parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port", type=int,
+        default=int(os.environ.get("GHOST_VISION_PORT", "9876")),
+        help="Port to listen on (default: 9876, or GHOST_VISION_PORT env var)",
+    )
+    parser.add_argument(
+        "--model-path", default=None,
+        help="Path to ShowUI-2B model directory. Auto-detected if not specified.",
+    )
+    parser.add_argument(
+        "--idle-timeout", type=int, default=600,
+        help="Auto-exit after N seconds of no requests (default: 600, 0 to disable)",
+    )
+    parser.add_argument(
+        "--preload", action="store_true",
+        help="Pre-load the VLM model at startup instead of lazy-loading on first request",
+    )
+    parser.add_argument(
+        "--health-check", action="store_true",
+        help="Test that the model can load, then exit (for setup verification)",
+    )
+    return parser.parse_args()
+
+
 # ── Main ───────────────────────────────────────────────────────────
 
 def main():
-    log(f"Ghost OS Vision Sidecar starting on {HOST}:{PORT}")
+    global HOST, PORT, MODEL_PATH, IDLE_TIMEOUT, _server_instance
+
+    args = parse_args()
+
+    HOST = args.host
+    PORT = args.port
+    MODEL_PATH = resolve_model_path(args.model_path)
+    IDLE_TIMEOUT = args.idle_timeout
+
+    # --health-check: try to load model and exit
+    if args.health_check:
+        log(f"Health check: loading model from {MODEL_PATH}")
+        if not os.path.isdir(MODEL_PATH):
+            log(f"ERROR: Model directory not found: {MODEL_PATH}")
+            sys.exit(1)
+        if _load_vlm():
+            log("Health check passed: model loaded successfully")
+            sys.exit(0)
+        else:
+            log(f"Health check FAILED: {_vlm_load_error}")
+            sys.exit(1)
+
+    # Install signal handlers
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+
+    log(f"Ghost OS Vision Sidecar v{__version__} starting on {HOST}:{PORT}")
     log(f"ShowUI-2B model path: {MODEL_PATH}")
     log(f"Model exists: {os.path.isdir(MODEL_PATH)}")
+    if IDLE_TIMEOUT > 0:
+        log(f"Idle timeout: {IDLE_TIMEOUT}s")
+    else:
+        log("Idle timeout: disabled")
 
-    # Pre-load VLM if --preload flag is set
-    if "--preload" in sys.argv:
+    # Pre-load VLM if requested
+    if args.preload:
         log("Pre-loading VLM model...")
         _load_vlm()
 
+    # Start idle timer
+    _reset_idle_timer()
+
     # Allow port reuse to prevent "Address already in use" on restart
-    import socketserver
     class ReusableTCPServer(HTTPServer):
         allow_reuse_address = True
         allow_reuse_port = True
 
-    server = ReusableTCPServer((HOST, PORT), VisionHandler)
+    _server_instance = ReusableTCPServer((HOST, PORT), VisionHandler)
     log(f"Listening on http://{HOST}:{PORT}")
     log("Endpoints: GET /health, POST /ground, POST /detect, POST /parse")
 
     try:
-        server.serve_forever()
+        _server_instance.serve_forever()
     except KeyboardInterrupt:
-        log("Shutting down")
-        server.shutdown()
+        pass
+    finally:
+        log("Server stopped")
+        _server_instance.server_close()
 
 
 if __name__ == "__main__":

@@ -7,11 +7,13 @@
 // Architecture:
 //   Ghost OS (Swift) --HTTP--> Vision Sidecar (Python) --MLX--> ShowUI-2B
 //
-// The sidecar runs on localhost:9876 and is started separately.
+// The sidecar runs on localhost:9876. VisionBridge auto-starts it when
+// needed via the `ghost-vision` launcher script.
+//
 // VisionBridge handles:
 //   1. Health check (is the sidecar running?)
 //   2. VLM grounding (find element coordinates from screenshot + description)
-//   3. Sidecar lifecycle management (start/stop)
+//   3. Sidecar lifecycle management (auto-start, track PID)
 
 import Foundation
 
@@ -34,6 +36,12 @@ public enum VisionBridge {
     /// Timeout for VLM grounding (model inference can take 3-5s on first call,
     /// then 0.5-3s on subsequent calls with warm model).
     private static let groundTimeout: TimeInterval = 30.0
+
+    /// Timeout for the first grounding call which also loads the model (~10-15s).
+    private static let firstGroundTimeout: TimeInterval = 60.0
+
+    /// PID of the sidecar process we started (if any).
+    nonisolated(unsafe) private static var sidecarPID: Int32?
 
     // MARK: - Health Check
 
@@ -70,6 +78,8 @@ public enum VisionBridge {
 
     /// Find precise coordinates for a UI element using VLM grounding.
     ///
+    /// Auto-starts the vision sidecar if it's not already running.
+    ///
     /// - Parameters:
     ///   - imageBase64: Base64-encoded PNG screenshot
     ///   - description: What to find (e.g., "Compose button", "Send button")
@@ -87,6 +97,15 @@ public enum VisionBridge {
         screenHeight: Double = 1117,
         cropBox: [Double]? = nil
     ) -> GroundResult? {
+        // Auto-start sidecar if not running
+        if !isAvailable() {
+            Log.info("Vision sidecar not running, attempting auto-start...")
+            if !startSidecar() {
+                Log.warn("Vision sidecar auto-start failed")
+                return nil
+            }
+        }
+
         var payload: [String: Any] = [
             "image": imageBase64,
             "description": description,
@@ -97,7 +116,12 @@ public enum VisionBridge {
             payload["crop_box"] = cropBox
         }
 
-        guard let result = httpPost(path: "/ground", body: payload, timeout: groundTimeout) else {
+        // Use longer timeout for first call (model loading)
+        let health = healthCheck()
+        let modelsLoaded = (health?["models_loaded"] as? [String])?.isEmpty == false
+        let timeout = modelsLoaded ? groundTimeout : firstGroundTimeout
+
+        guard let result = httpPost(path: "/ground", body: payload, timeout: timeout) else {
             Log.warn("Vision sidecar /ground request failed")
             return nil
         }
@@ -123,7 +147,7 @@ public enum VisionBridge {
     // MARK: - Sidecar Lifecycle
 
     /// Attempt to start the vision sidecar process.
-    /// Looks for server.py in the expected locations relative to the ghost binary.
+    /// Looks for `ghost-vision` launcher script, then falls back to running server.py directly.
     @discardableResult
     public static func startSidecar() -> Bool {
         // Check if already running
@@ -132,56 +156,157 @@ public enum VisionBridge {
             return true
         }
 
-        // Find server.py
-        let serverScript = findServerScript()
-        guard let script = serverScript else {
-            Log.warn("Vision sidecar server.py not found")
-            return false
-        }
+        // Strategy 1: Use ghost-vision launcher script (handles venv/Python resolution)
+        if let launcher = findGhostVisionBinary() {
+            Log.info("Starting vision sidecar via \(launcher)")
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: launcher)
+            process.arguments = ["--idle-timeout", "600"]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.standardError
 
-        Log.info("Starting vision sidecar from \(script)")
+            do {
+                try process.run()
+                sidecarPID = process.processIdentifier
+            } catch {
+                Log.error("Failed to start vision sidecar via launcher: \(error)")
+                // Fall through to strategy 2
+            }
 
-        // Start as background process
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [script]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.standardError
-
-        do {
-            try process.run()
-        } catch {
-            Log.error("Failed to start vision sidecar: \(error)")
-            return false
-        }
-
-        // Wait for it to become available (up to 5 seconds)
-        for _ in 0..<50 {
-            Thread.sleep(forTimeInterval: 0.1)
-            if isAvailable() {
+            if waitForSidecar() {
                 Log.info("Vision sidecar started (PID \(process.processIdentifier))")
                 return true
             }
         }
 
-        Log.warn("Vision sidecar started but not responding after 5s")
+        // Strategy 2: Run server.py directly with system Python
+        if let script = findServerScript() {
+            Log.info("Starting vision sidecar from \(script)")
+
+            // Find Python with mlx_vlm
+            let python = findPython()
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: python)
+            process.arguments = [script, "--idle-timeout", "600"]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.standardError
+
+            do {
+                try process.run()
+                sidecarPID = process.processIdentifier
+            } catch {
+                Log.error("Failed to start vision sidecar: \(error)")
+                return false
+            }
+
+            if waitForSidecar() {
+                Log.info("Vision sidecar started (PID \(process.processIdentifier))")
+                return true
+            }
+        }
+
+        Log.warn("Could not find or start vision sidecar")
         return false
+    }
+
+    /// Wait for the sidecar to become responsive (up to 10 seconds).
+    private static func waitForSidecar() -> Bool {
+        for _ in 0..<100 {
+            Thread.sleep(forTimeInterval: 0.1)
+            if isAvailable() {
+                return true
+            }
+        }
+        Log.warn("Vision sidecar started but not responding after 10s")
+        return false
+    }
+
+    /// Find the ghost-vision launcher script/binary.
+    private static func findGhostVisionBinary() -> String? {
+        let candidates = [
+            // Homebrew install
+            "/opt/homebrew/bin/ghost-vision",
+            "/usr/local/bin/ghost-vision",
+            // Same directory as the ghost binary
+            (ProcessInfo.processInfo.arguments[0] as NSString)
+                .deletingLastPathComponent + "/ghost-vision",
+            // Development location
+            (ProcessInfo.processInfo.arguments[0] as NSString)
+                .deletingLastPathComponent + "/../vision-sidecar/ghost-vision",
+        ]
+
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return nil
     }
 
     /// Find the server.py script in expected locations.
     private static func findServerScript() -> String? {
         let candidates = [
+            // Homebrew install
+            "/opt/homebrew/share/ghost-os/vision-sidecar/server.py",
+            "/usr/local/share/ghost-os/vision-sidecar/server.py",
             // Next to the ghost binary (installed)
             (ProcessInfo.processInfo.arguments[0] as NSString)
                 .deletingLastPathComponent + "/vision-sidecar/server.py",
-            // Development location
-            "/Users/cheema/mcheema/work/future/ghost-os-v2/vision-sidecar/server.py",
-            // Homebrew location
-            "/opt/homebrew/share/ghost-os/vision-sidecar/server.py",
+            // Development: .build/debug/ghost -> project root/vision-sidecar/
+            ((ProcessInfo.processInfo.arguments[0] as NSString)
+                .deletingLastPathComponent as NSString)
+                .deletingLastPathComponent + "/vision-sidecar/server.py",
+            (((ProcessInfo.processInfo.arguments[0] as NSString)
+                .deletingLastPathComponent as NSString)
+                .deletingLastPathComponent as NSString)
+                .deletingLastPathComponent + "/vision-sidecar/server.py",
         ]
 
         for path in candidates {
             if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    /// Find the best Python executable with mlx_vlm available.
+    private static func findPython() -> String {
+        // Check venv first
+        let venvPython = NSHomeDirectory() + "/.ghost-os/venv/bin/python3"
+        if FileManager.default.isExecutableFile(atPath: venvPython) {
+            return venvPython
+        }
+
+        // Homebrew Python
+        for path in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"] {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+
+        // System Python
+        return "/usr/bin/python3"
+    }
+
+    // MARK: - Model Path Resolution
+
+    /// Check if the ShowUI-2B model exists at any known location.
+    /// Returns the path if found, nil otherwise.
+    public static func findModelPath() -> String? {
+        let candidates = [
+            "/opt/homebrew/share/ghost-os/models/ShowUI-2B",
+            NSHomeDirectory() + "/.ghost-os/models/ShowUI-2B",
+            NSHomeDirectory() + "/.shadow/models/llm/ShowUI-2B-bf16-8bit",
+        ]
+
+        for path in candidates {
+            let safetensors = (path as NSString).appendingPathComponent("model.safetensors")
+            let config = (path as NSString).appendingPathComponent("config.json")
+            if FileManager.default.fileExists(atPath: safetensors)
+                || FileManager.default.fileExists(atPath: config)
+            {
                 return path
             }
         }

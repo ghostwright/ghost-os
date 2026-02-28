@@ -7,3 +7,11 @@ DerivedData/
 *.dylib
 .DS_Store
 local/
+
+# Release artifacts
+ghost-os-*.tar.gz
+
+# PyInstaller (if used)
+vision-sidecar/build/
+vision-sidecar/dist/
+*.spec
