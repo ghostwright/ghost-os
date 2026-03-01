@@ -367,38 +367,82 @@ public enum Perception {
             targetApp = frontApp
         }
 
-        // ScreenCaptureKit is async - bridge to sync with RunLoop spinning
         let pid = targetApp.processIdentifier
+        let appDisplayName = targetApp.localizedName ?? appName ?? "app"
 
-        // First attempt: try capturing without focus change
-        if let result = captureScreenshotSync(pid: pid, fullResolution: fullResolution) {
-            return screenshotResult(result)
+        // First attempt: try capturing without focus change.
+        // With .optionAll this now finds windows even behind other windows.
+        let (firstResult, firstFailure) = ScreenCapture.captureWindowSyncWithReason(
+            pid: pid, fullResolution: fullResolution
+        )
+        if let firstResult {
+            return screenshotResult(firstResult)
         }
 
-        // Retry: ScreenCaptureKit can't capture windows in other Spaces.
-        // Briefly focus the app to bring its windows to the current Space,
-        // capture, then restore focus to the original frontmost app.
-        Log.info("Screenshot: retrying after focus for \(targetApp.localizedName ?? "app")")
-        let savedApp = NSWorkspace.shared.frontmostApplication
+        // Handle failures that activating the app cannot fix.
+        switch firstFailure {
+        case .noPermission:
+            return ToolResult(
+                success: false,
+                error: "Screen Recording permission not granted",
+                suggestion: "Grant Screen Recording in System Settings > Privacy & Security > Screen Recording, then restart Ghost OS."
+            )
+        case .windowListUnavailable:
+            return ToolResult(
+                success: false,
+                error: "CGWindowListCopyWindowInfo returned nil — system error",
+                suggestion: "This is unusual. Try restarting Ghost OS."
+            )
+        case .noWindowsForApp:
+            // The app has no windows at all (all closed, or minimized below
+            // CG's visibility). Activate and retry.
+            break
+        case .captureReturnedNil:
+            // Window found but capture failed — activate and retry.
+            break
+        case .imageTooSmall:
+            // Window is minimized or off-screen, resulting in a tiny image.
+            // Activate the app so macOS brings the window on-screen.
+            Log.info("Screenshot: window appears minimized — activating '\(appDisplayName)' to capture")
+            break
+        case nil:
+            break
+        }
+
+        // Retry: activate the app to bring its windows on-screen, then capture.
+        Log.info("Screenshot: retrying after focus for \(appDisplayName)")
         targetApp.activate()
         Thread.sleep(forTimeInterval: 0.5)  // Allow Space transition to complete
 
-        let result = captureScreenshotSync(pid: pid, fullResolution: fullResolution)
+        let (retryResult, retryFailure) = ScreenCapture.captureWindowSyncWithReason(
+            pid: pid, fullResolution: fullResolution
+        )
 
-        // Restore original focus if we changed it
-        if let savedApp, savedApp.processIdentifier != targetApp.processIdentifier {
-            savedApp.activate()
+        guard let retryResult else {
+            // Produce a targeted error message based on the failure reason.
+            let errorMsg: String
+            let suggestion: String
+            switch retryFailure {
+            case .noPermission:
+                errorMsg = "Screen Recording permission not granted"
+                suggestion = "Grant Screen Recording in System Settings > Privacy & Security > Screen Recording, then restart Ghost OS."
+            case .noWindowsForApp:
+                errorMsg = "Application '\(appDisplayName)' has no open windows"
+                suggestion = "The app is running but has no windows. Open a window first, or check ghost_state to verify."
+            case .captureReturnedNil(let wid):
+                errorMsg = "Window capture failed for '\(appDisplayName)' (windowID \(wid)) — window may be in an unsupported state"
+                suggestion = "Try ghost_focus on the app first, wait a moment, then retry ghost_screenshot."
+            case .imageTooSmall(let w, let h):
+                errorMsg = "Window appears minimized for '\(appDisplayName)' (captured \(w)x\(h))"
+                suggestion = "The window may be minimized. Use ghost_window action:\"restore\" to un-minimize it, then retry."
+            default:
+                errorMsg = "Screenshot capture failed for '\(appDisplayName)'"
+                suggestion = "Ensure Screen Recording permission is granted in System Settings > Privacy & Security > Screen Recording."
+            }
+            return ToolResult(success: false, error: errorMsg, suggestion: suggestion)
         }
 
-        guard let result else {
-            return ToolResult(
-                success: false,
-                error: "Screenshot capture failed",
-                suggestion: "Ensure Screen Recording permission is granted in System Settings > Privacy & Security > Screen Recording"
-            )
-        }
-
-        return screenshotResult(result)
+        return screenshotResult(retryResult)
     }
 
     private static func screenshotResult(_ result: ScreenshotResult) -> ToolResult {
@@ -410,6 +454,12 @@ public enum Perception {
                 "height": result.height,
                 "window_title": result.windowTitle as Any,
                 "mime_type": result.mimeType,
+                "window_frame": [
+                    "x": result.windowX,
+                    "y": result.windowY,
+                    "width": result.windowWidth,
+                    "height": result.windowHeight,
+                ],
             ]
         )
     }
@@ -976,59 +1026,18 @@ public enum Perception {
         return nil
     }
 
-    // MARK: - Sync Screenshot Bridge
+    // MARK: - Synchronous Screenshot
 
-    /// Guard against orphan ScreenCaptureKit tasks. If a previous capture is
-    /// still in-flight (hung or slow), we refuse to start another one rather
-    /// than crashing the server.
-    private static var isCapturing = false
-
-    /// Bridge ScreenCaptureKit's async API to synchronous using RunLoop spinning.
-    /// ScreenCaptureKit REQUIRES the main thread (CG-initialized). Without
-    /// @MainActor, Task {} may run on a background thread and crash with
-    /// CGS_REQUIRE_INIT.
+    /// Capture a screenshot synchronously using CGWindowListCreateImage.
+    ///
+    /// Delegates to ScreenCapture.captureWindowSync() which uses CoreGraphics
+    /// directly. The previous ScreenCaptureKit async + RunLoop spinning approach
+    /// broke on macOS 26 because Swift 6.2's main actor executor no longer
+    /// dispatches Task continuations through RunLoop.main.run(until:).
     private static func captureScreenshotSync(
         pid: pid_t,
         fullResolution: Bool
     ) -> ScreenshotResult? {
-        // Permission check (fail-fast)
-        guard ScreenCapture.hasPermission() else {
-            Log.error("Screenshot: Screen Recording permission not granted")
-            return nil
-        }
-
-        // Guard against concurrent captures (orphan tasks from previous calls)
-        guard !isCapturing else {
-            Log.warn("Screenshot: capture already in-flight, skipping")
-            return nil
-        }
-        isCapturing = true
-        defer { isCapturing = false }
-
-        var result: ScreenshotResult?
-        var completed = false
-
-        // Fire async capture on MainActor. ScreenCaptureKit REQUIRES a
-        // CG-initialized thread (the main thread). Without @MainActor,
-        // Task {} runs on a cooperative thread pool and crashes.
-        Task { @MainActor in
-            result = await ScreenCapture.captureWindow(
-                pid: pid, fullResolution: fullResolution
-            )
-            completed = true
-        }
-
-        // Spin RunLoop.main until async task completes.
-        // Each 10ms iteration processes events including Task continuations.
-        let deadline = Date().addingTimeInterval(10)
-        while !completed && Date() < deadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-        }
-
-        if !completed {
-            Log.error("Screenshot: timed out after 10s")
-        }
-
-        return result
+        ScreenCapture.captureWindowSync(pid: pid, fullResolution: fullResolution)
     }
 }

@@ -10,7 +10,8 @@ import Foundation
 /// Manages application and window focus, modifier key cleanup, and focus restoration.
 public enum FocusManager {
 
-    /// Focus an app, optionally a specific window. Retries once if first attempt fails.
+    /// Focus an app, optionally a specific window. Retries activation once,
+    /// then polls for up to 1 second to verify focus took effect.
     public static func focus(appName: String, windowTitle: String? = nil) -> ToolResult {
         guard let app = NSWorkspace.shared.runningApplications.first(where: {
             $0.localizedName?.localizedCaseInsensitiveContains(appName) == true
@@ -22,7 +23,7 @@ public enum FocusManager {
             )
         }
 
-        // Try activation with retry
+        // Try activation with retry (two attempts).
         for attempt in 1...2 {
             let activated = app.activate()
             if !activated && attempt == 2 {
@@ -33,10 +34,10 @@ public enum FocusManager {
                 )
             }
 
-            // Wait for activation (longer on first attempt)
-            Thread.sleep(forTimeInterval: attempt == 1 ? 0.3 : 0.5)
+            // Brief pause to let the activation propagate.
+            Thread.sleep(forTimeInterval: 0.2)
 
-            // If window title specified, find and raise that window
+            // If window title specified, find and raise that window.
             if let windowTitle {
                 if let appElement = Element.application(for: app.processIdentifier),
                    let windows = appElement.windows()
@@ -45,33 +46,33 @@ public enum FocusManager {
                         $0.title()?.localizedCaseInsensitiveContains(windowTitle) == true
                     }) {
                         _ = targetWindow.focusWindow()
-                        Thread.sleep(forTimeInterval: 0.1)
                     }
                 }
             }
 
-            // Verify focus
-            Thread.sleep(forTimeInterval: 0.1)
-            let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
-            if isFront {
-                return ToolResult(
-                    success: true,
-                    data: [
-                        "app": app.localizedName ?? appName,
-                        "focused": true,
-                    ]
-                )
+            // Poll for up to 1 second (10 checks x 100ms) to verify focus.
+            for _ in 0..<10 {
+                Thread.sleep(forTimeInterval: 0.1)
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
+                    return ToolResult(
+                        success: true,
+                        data: [
+                            "app": app.localizedName ?? appName,
+                            "focused": true,
+                        ]
+                    )
+                }
             }
-            // First attempt failed, retry
+            // First attempt timed out, retry activation.
         }
 
-        // Both attempts completed but couldn't verify
+        // Both attempts completed but couldn't verify within the polling window.
         return ToolResult(
             success: true,
             data: [
                 "app": app.localizedName ?? appName,
                 "focused": false,
-                "note": "App was activated but focus verification failed. It may still be focused.",
+                "note": "App was activated but focus verification timed out. It may still be focused.",
             ]
         )
     }

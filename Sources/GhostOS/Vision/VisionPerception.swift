@@ -358,6 +358,7 @@ public enum VisionPerception {
 
     /// Capture a screenshot suitable for vision processing.
     /// Uses the existing ScreenCapture module (same as ghost_screenshot).
+    /// Includes activate-and-retry logic for windows that are off-screen.
     private static func captureForVision(
         appName: String?,
         fullResolution: Bool
@@ -375,52 +376,34 @@ public enum VisionPerception {
             targetApp = frontApp
         }
 
-        return captureScreenshotSync(
-            pid: targetApp.processIdentifier,
-            fullResolution: fullResolution
+        let pid = targetApp.processIdentifier
+
+        // First attempt: capture without focus change.
+        let (firstResult, firstFailure) = ScreenCapture.captureWindowSyncWithReason(
+            pid: pid, fullResolution: fullResolution
         )
-    }
+        if let firstResult {
+            return firstResult
+        }
 
-    /// Synchronous screenshot capture (same pattern as Perception.swift).
-    /// Bridge ScreenCaptureKit async to sync using RunLoop spinning.
-    private static var isCapturing = false
-
-    private static func captureScreenshotSync(
-        pid: pid_t,
-        fullResolution: Bool
-    ) -> ScreenshotResult? {
-        guard ScreenCapture.hasPermission() else {
-            Log.error("Vision: Screen Recording permission not granted")
+        // If the failure is fixable by activating the app, try that.
+        switch firstFailure {
+        case .noPermission, .windowListUnavailable:
+            // Cannot fix by activating.
             return nil
+        case .noWindowsForApp, .captureReturnedNil, .imageTooSmall, nil:
+            break
         }
 
-        guard !isCapturing else {
-            Log.warn("Vision: capture already in-flight")
-            return nil
-        }
-        isCapturing = true
-        defer { isCapturing = false }
+        // Retry: activate the app to bring windows on-screen.
+        Log.info("VisionCapture: retrying after focus for \(targetApp.localizedName ?? "app")")
+        targetApp.activate()
+        Thread.sleep(forTimeInterval: 0.5)
 
-        var result: ScreenshotResult?
-        var completed = false
-
-        Task { @MainActor in
-            result = await ScreenCapture.captureWindow(
-                pid: pid, fullResolution: fullResolution
-            )
-            completed = true
-        }
-
-        let deadline = Date().addingTimeInterval(10)
-        while !completed && Date() < deadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-        }
-
-        if !completed {
-            Log.error("Vision: screenshot timed out")
-        }
-
-        return result
+        let (retryResult, _) = ScreenCapture.captureWindowSyncWithReason(
+            pid: pid, fullResolution: fullResolution
+        )
+        return retryResult
     }
 
     /// Standard error result when the vision sidecar is not available.
