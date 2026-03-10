@@ -288,11 +288,32 @@ public enum VisionBridge {
             return venvPython
         }
 
-        // Homebrew Python
-        for path in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"] {
+        // Common absolute paths (Homebrew on Apple Silicon, Intel, system)
+        for path in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"] {
             if FileManager.default.isExecutableFile(atPath: path) {
                 return path
             }
+        }
+
+        // Fall back to PATH lookup for pyenv, conda, nix, asdf, etc.
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", "which python3 2>/dev/null"]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            if process.terminationStatus == 0,
+               let output = String(data: data, encoding: .utf8)
+            {
+                let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty { return path }
+            }
+        } catch {
+            // Silently fall through — no Python found
         }
 
         return nil

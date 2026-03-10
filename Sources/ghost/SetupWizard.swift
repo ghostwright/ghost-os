@@ -340,7 +340,9 @@ struct SetupWizard {
         }
 
         // Step 6a: Ensure Python environment
-        if !hasPython && !hasLauncher {
+        // Set up the venv whenever mlx_vlm isn't already available — the launcher
+        // existing doesn't mean Python is ready for model download or sidecar use.
+        if !hasPython {
             print("  Setting up Python environment...")
             if !setupPythonVenv() {
                 printFail("Python venv setup failed")
@@ -352,9 +354,11 @@ struct SetupWizard {
                 return false
             }
             print("  Python environment: ready")
-        } else if hasPython {
-            print("  Python environment: ready")
         } else {
+            print("  Python environment: ready")
+        }
+
+        if hasLauncher {
             print("  Launcher: \(findGhostVisionBinary() ?? "found")")
         }
 
@@ -469,6 +473,21 @@ struct SetupWizard {
         VisionBridge.findModelPath()
     }
 
+    /// Resolve python3 to an absolute path by checking common locations then PATH.
+    /// Returns nil if python3 cannot be found.
+    private func resolveAbsolutePythonPath() -> String? {
+        let candidates = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
+        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return found
+        }
+        let which = runShell("which python3 2>/dev/null")
+        if which.exitCode == 0 {
+            let path = which.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !path.isEmpty { return path }
+        }
+        return nil
+    }
+
     /// Download ShowUI-2B model from HuggingFace
     private func downloadModel() -> Bool {
         let destDir = NSHomeDirectory() + "/.ghost-os/models/ShowUI-2B"
@@ -476,13 +495,17 @@ struct SetupWizard {
         // Create directory
         try? FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
 
-        // Use huggingface-cli if available, otherwise use Python
+        // Find Python — must be an absolute path since Process/URL(fileURLWithPath:)
+        // resolves bare names like "python3" relative to CWD, not via PATH.
         let venvPython = NSHomeDirectory() + "/.ghost-os/venv/bin/python3"
         let python: String
         if FileManager.default.isExecutableFile(atPath: venvPython) {
             python = venvPython
+        } else if let resolved = resolveAbsolutePythonPath() {
+            python = resolved
         } else {
-            python = "python3"
+            print("  ERROR: python3 not found. Install Python 3.9+ first.")
+            return false
         }
 
         // Download using huggingface_hub
