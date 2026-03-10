@@ -250,6 +250,30 @@ public enum Actions {
 
     // MARK: - ghost_type
 
+    /// True if the string contains any non-ASCII character (e.g. Chinese, emoji).
+    /// Synthetic key events (AXorcist typeText) use key codes and produce wrong
+    /// output for such characters; we use clipboard paste instead.
+    private static func containsNonASCII(_ text: String) -> Bool {
+        text.unicodeScalars.contains { $0.value > 0x7F }
+    }
+
+    /// Type text by pasting from clipboard. Used for non-ASCII text so IME/Unicode
+    /// is preserved instead of wrong key-code output (e.g. "aaaaa" for Chinese).
+    private static func typeViaPaste(_ text: String) throws {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let oldString = pasteboard.string(forType: .string)
+        guard pasteboard.setString(text, forType: .string) else {
+            throw NSError(domain: "Actions", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to set pasteboard"])
+        }
+        defer {
+            pasteboard.clearContents()
+            if let oldString { pasteboard.setString(oldString, forType: .string) }
+        }
+        try Element.performHotkey(keys: ["cmd", "v"])
+        FocusManager.clearModifierFlags()
+    }
+
     /// Type text into a field. Uses AXorcist's SetFocusedValue command for
     /// AX-native typing (focus + setValue), with synthetic typeText fallback.
     public static func typeText(
@@ -370,7 +394,11 @@ public enum Actions {
                     Thread.sleep(forTimeInterval: 0.05)
                     FocusManager.clearModifierFlags()
                 }
-                try Element.typeText(text, delay: 0.01)
+                if containsNonASCII(text) {
+                    try typeViaPaste(text)
+                } else {
+                    try Element.typeText(text, delay: 0.01)
+                }
                 Thread.sleep(forTimeInterval: 0.15)
 
                 // Read back from the same element we found earlier
@@ -380,7 +408,7 @@ public enum Actions {
                 return ToolResult(
                     success: true,
                     data: [
-                        "method": "click-then-type",
+                        "method": containsNonASCII(text) ? "click-then-paste" : "click-then-type",
                         "field": fieldName,
                         "typed": text,
                         "verified": verified,
@@ -406,11 +434,18 @@ public enum Actions {
                 Thread.sleep(forTimeInterval: 0.05)
                 FocusManager.clearModifierFlags()
             }
-            try Element.typeText(text, delay: 0.01)
+            if containsNonASCII(text) {
+                try typeViaPaste(text)
+            } else {
+                try Element.typeText(text, delay: 0.01)
+            }
             Thread.sleep(forTimeInterval: 0.1)
             return ToolResult(
                 success: true,
-                data: ["method": "synthetic-at-focus", "typed": text]
+                data: [
+                    "method": containsNonASCII(text) ? "synthetic-paste" : "synthetic-at-focus",
+                    "typed": text,
+                ]
             )
         } catch {
             return ToolResult(success: false, error: "Type failed: \(error)")
