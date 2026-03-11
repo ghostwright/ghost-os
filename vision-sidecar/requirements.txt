@@ -13,7 +13,7 @@
 # Pin transformers below 4.49 to avoid PyTorch dependency via Qwen2VL video processor.
 # server.py requires stream_generate which was introduced in mlx-vlm 0.1.15.
 mlx>=0.21.0,<1.0.0
-mlx-lm>=0.21.5
+mlx-lm>=0.21.5,<0.30.0
 transformers>=4.38.0,<4.49.0
 numpy>=1.23.4
 Pillow>=10.0.0,<12.0.0

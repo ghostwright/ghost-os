@@ -361,7 +361,7 @@ struct SetupWizard {
                 print("  You can set it up manually later:")
                 print("    python3 -m venv ~/.ghost-os/venv")
                 print("    ~/.ghost-os/venv/bin/pip install --no-deps \"mlx-vlm==0.1.15\"")
-                print("    ~/.ghost-os/venv/bin/pip install \"transformers==4.48.3\" \"mlx-lm>=0.21.5\" mlx Pillow \"numpy>=1.23.4\"")
+                print("    ~/.ghost-os/venv/bin/pip install \"transformers==4.48.3\" \"mlx-lm>=0.21.5,<0.30.0\" mlx Pillow \"numpy>=1.23.4\"")
                 print("")
                 return false
             }
@@ -512,7 +512,7 @@ struct SetupWizard {
         // mlx-lm is a runtime import of mlx-vlm (models/base.py imports mlx_lm.models.cache)
         let pipStep2 = runShell(
             "\"\(venvPath)/bin/pip\" install --quiet"
-            + " \"transformers==4.48.3\" \"mlx-lm>=0.21.5\" mlx Pillow \"numpy>=1.23.4\" 2>&1"
+            + " \"transformers==4.48.3\" \"mlx-lm>=0.21.5,<0.30.0\" mlx Pillow \"numpy>=1.23.4\" 2>&1"
         )
         if pipStep2.exitCode != 0 {
             print("  ERROR: pip install dependencies failed:")
