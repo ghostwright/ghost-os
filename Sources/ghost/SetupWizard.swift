@@ -360,7 +360,8 @@ struct SetupWizard {
                 print("  Vision grounding (ghost_ground) will not be available.")
                 print("  You can set it up manually later:")
                 print("    python3 -m venv ~/.ghost-os/venv")
-                print("    ~/.ghost-os/venv/bin/pip install mlx mlx-vlm transformers Pillow")
+                print("    ~/.ghost-os/venv/bin/pip install --no-deps \"mlx-vlm==0.1.15\"")
+                print("    ~/.ghost-os/venv/bin/pip install \"transformers==4.48.3\" \"mlx-lm>=0.21.5\" mlx Pillow \"numpy>=1.23.4\"")
                 print("")
                 return false
             }
@@ -465,8 +466,23 @@ struct SetupWizard {
             }
         }
 
-        // Create venv (skip if already exists and has pip)
+        // Recreate venv if it was created by an older Ghost OS version.
+        // Stale venvs may have incompatible package versions (e.g. transformers>=4.49
+        // which requires PyTorch for Qwen2VL video processor).
+        let venvStampPath = venvPath + "/.ghost-os-version"
         let venvPip = venvPath + "/bin/pip"
+        let currentVersion = GhostOS.version
+
+        if FileManager.default.isExecutableFile(atPath: venvPip) {
+            let stampVersion = (try? String(contentsOfFile: venvStampPath, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if stampVersion != currentVersion {
+                print("  Recreating Python environment for v\(currentVersion)...")
+                try? FileManager.default.removeItem(atPath: venvPath)
+            }
+        }
+
+        // Create venv if needed
         if !FileManager.default.isExecutableFile(atPath: venvPip) {
             print("  Creating virtual environment...")
             let createResult = runShell("\(pythonPath) -m venv \"\(venvPath)\" 2>&1")
@@ -476,28 +492,62 @@ struct SetupWizard {
             }
         }
 
-        // Install dependencies
-        print("  Installing mlx, mlx-vlm, transformers, Pillow...")
+        // Install mlx-vlm with --no-deps, then install its runtime deps separately.
+        // mlx-vlm 0.1.15 metadata declares transformers>=4.49.0 but works fine with
+        // 4.48.3 at runtime. Without --no-deps, pip refuses to resolve the conflict.
+        print("  Installing mlx-vlm, transformers, mlx, Pillow...")
         print("  (This may take a minute on first install)")
-        let pipResult = runShell(
-            "\"\(venvPath)/bin/pip\" install --quiet mlx mlx-vlm transformers Pillow 2>&1"
+        let pipStep1 = runShell(
+            "\"\(venvPath)/bin/pip\" install --quiet --no-deps \"mlx-vlm==0.1.15\" 2>&1"
         )
-        if pipResult.exitCode != 0 {
-            print("  ERROR: pip install failed:")
-            // Show last few lines of error
-            let lines = pipResult.output.split(separator: "\n")
+        if pipStep1.exitCode != 0 {
+            print("  ERROR: pip install mlx-vlm failed:")
+            let lines = pipStep1.output.split(separator: "\n")
             for line in lines.suffix(5) {
                 print("    \(line)")
             }
             return false
         }
 
-        // Verify
-        let verifyResult = runShell("\"\(venvPath)/bin/python3\" -c 'import mlx_vlm; print(\"ok\")' 2>&1")
-        if verifyResult.exitCode != 0 || !verifyResult.output.contains("ok") {
-            print("  ERROR: mlx_vlm verification failed")
+        // mlx-lm is a runtime import of mlx-vlm (models/base.py imports mlx_lm.models.cache)
+        let pipStep2 = runShell(
+            "\"\(venvPath)/bin/pip\" install --quiet"
+            + " \"transformers==4.48.3\" \"mlx-lm>=0.21.5\" mlx Pillow \"numpy>=1.23.4\" 2>&1"
+        )
+        if pipStep2.exitCode != 0 {
+            print("  ERROR: pip install dependencies failed:")
+            let lines = pipStep2.output.split(separator: "\n")
+            for line in lines.suffix(5) {
+                print("    \(line)")
+            }
             return false
         }
+
+        // Verify mlx_vlm imports and transformers version is in safe range
+        let verifyScript = """
+        import mlx_vlm
+        import transformers
+        v = transformers.__version__.split(".")
+        major, minor = int(v[0]), int(v[1])
+        if major > 4 or (major == 4 and minor >= 49):
+            print("BAD_TRANSFORMERS:" + transformers.__version__)
+        else:
+            print("ok")
+        """
+        let verifyResult = runShell("\"\(venvPath)/bin/python3\" -c '\(verifyScript)' 2>&1")
+        if verifyResult.exitCode != 0 || !verifyResult.output.contains("ok") {
+            if verifyResult.output.contains("BAD_TRANSFORMERS") {
+                let badVer = verifyResult.output.split(separator: ":").last ?? "unknown"
+                print("  ERROR: transformers \(badVer) installed (>=4.49 requires PyTorch).")
+                print("  Fix: rm -rf ~/.ghost-os/venv && ghost setup")
+            } else {
+                print("  ERROR: mlx_vlm verification failed")
+            }
+            return false
+        }
+
+        // Stamp the venv with the current Ghost OS version
+        try? currentVersion.write(toFile: venvStampPath, atomically: true, encoding: .utf8)
 
         return true
     }

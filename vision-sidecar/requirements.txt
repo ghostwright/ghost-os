@@ -1,11 +1,19 @@
 # Ghost OS Vision Sidecar Dependencies
 #
 # These are the Python packages needed for the vision sidecar.
-# Most are already installed if you've used Shadow's mimicry system.
 #
-# Install: pip3 install -r requirements.txt
+# IMPORTANT: mlx-vlm must be installed with --no-deps because its metadata
+# declares transformers>=4.49.0, but >=4.49 requires PyTorch for the
+# Qwen2VL video processor. The code works fine with transformers <4.49.
+#
+# Install:
+#   pip install --no-deps mlx-vlm==0.1.15
+#   pip install -r requirements.txt
 
-mlx>=0.21.0
-mlx-vlm>=0.1.14
-transformers>=4.38.0
-Pillow>=10.0.0
+# Pin transformers below 4.49 to avoid PyTorch dependency via Qwen2VL video processor.
+# server.py requires stream_generate which was introduced in mlx-vlm 0.1.15.
+mlx>=0.21.0,<1.0.0
+mlx-lm>=0.21.5
+transformers>=4.38.0,<4.49.0
+numpy>=1.23.4
+Pillow>=10.0.0,<12.0.0
