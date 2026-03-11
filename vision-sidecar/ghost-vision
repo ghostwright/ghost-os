@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-VERSION="2.1.1"
+VERSION="2.1.2"
 
 # Find server.py in order of priority
 find_server_script() {
@@ -90,7 +90,8 @@ PYTHON=$(find_python) || {
     echo "" >&2
     echo "Run 'ghost setup' to create the vision environment, or install manually:" >&2
     echo "  python3 -m venv ~/.ghost-os/venv" >&2
-    echo "  ~/.ghost-os/venv/bin/pip install mlx mlx-vlm transformers Pillow" >&2
+    echo "  ~/.ghost-os/venv/bin/pip install --no-deps 'mlx-vlm==0.1.15'" >&2
+    echo "  ~/.ghost-os/venv/bin/pip install 'transformers==4.48.3' 'mlx-lm>=0.21.5,<0.30.0' mlx Pillow 'numpy>=1.23.4'" >&2
     exit 1
 }
 

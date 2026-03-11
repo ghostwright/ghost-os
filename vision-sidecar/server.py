@@ -27,7 +27,7 @@ Usage:
   python3 server.py --version                 # Print version
 """
 
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 
 import argparse
 import base64
@@ -105,6 +105,22 @@ _vlm_lock = Lock()
 _vlm_load_error = None
 
 
+def _check_transformers_version():
+    """Warn if transformers >= 4.49.0 is installed (requires PyTorch for Qwen2VL)."""
+    try:
+        import transformers
+        parts = transformers.__version__.split(".")
+        major, minor = int(parts[0]), int(parts[1])
+        if major > 4 or (major == 4 and minor >= 49):
+            log(f"WARNING: transformers {transformers.__version__} installed. "
+                f"Versions >=4.49.0 require PyTorch for Qwen2VL video processor. "
+                f"Fix: pip install 'transformers>=4.38.0,<4.49.0'")
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def _load_vlm():
     """Load ShowUI-2B model. Retries on each call if previously failed."""
     global _vlm_model, _vlm_processor, _vlm_tokenizer, _vlm_load_error
@@ -136,7 +152,15 @@ def _load_vlm():
             return True
         except Exception as e:
             _vlm_load_error = str(e)
-            log(f"ERROR loading ShowUI-2B: {e}")
+            err_str = str(e)
+            # Diagnose the specific transformers version incompatibility
+            if "AutoVideoProcessor" in err_str or "Torchvision" in err_str \
+                    or "PyTorch" in err_str or "Qwen2VLVideoProcessor" in err_str:
+                log(f"ERROR: transformers version incompatibility detected. "
+                    f"Qwen2VL processor requires PyTorch in transformers >=4.49.0. "
+                    f"Fix: pip install 'transformers>=4.38.0,<4.49.0'")
+            else:
+                log(f"ERROR loading ShowUI-2B: {e}")
             traceback.print_exc(file=sys.stderr)
             return False
 
@@ -562,6 +586,7 @@ def main():
     log(f"Ghost OS Vision Sidecar v{__version__} starting on {HOST}:{PORT}")
     log(f"ShowUI-2B model path: {MODEL_PATH}")
     log(f"Model exists: {os.path.isdir(MODEL_PATH)}")
+    _check_transformers_version()
     if IDLE_TIMEOUT > 0:
         log(f"Idle timeout: {IDLE_TIMEOUT}s")
     else:

@@ -8,7 +8,7 @@ import Foundation
 // MARK: - Version
 
 public enum GhostOS {
-    public static let version = "2.1.1"
+    public static let version = "2.1.2"
     public static let name = "ghost-os"
 }
 

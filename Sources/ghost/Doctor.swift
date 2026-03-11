@@ -275,6 +275,36 @@ struct Doctor {
                 print("  [ok] Python version: \(version)")
             }
         }
+
+        checkVisionDeps(venvPython: venvPython)
+    }
+
+    // MARK: - Vision Dependency Versions
+
+    private mutating func checkVisionDeps(venvPython: String) {
+        // Check transformers version (>=4.49.0 breaks Qwen2VL on MLX)
+        let tResult = runShell("\(venvPython) -c \"import transformers; print(transformers.__version__)\" 2>&1")
+        if tResult.exitCode == 0 {
+            let tVer = tResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let tParts = tVer.split(separator: ".")
+            if tParts.count >= 2,
+               let tMajor = Int(tParts[0]),
+               let tMinor = Int(tParts[1]) {
+                if tMajor > 4 || (tMajor == 4 && tMinor >= 49) {
+                    print("  [FAIL] transformers: \(tVer) (>=4.49 requires PyTorch for Qwen2VL)")
+                    print("    Fix: rm -rf ~/.ghost-os/venv && ghost setup")
+                    issueCount += 1
+                } else {
+                    print("  [ok] transformers: \(tVer)")
+                }
+            }
+        }
+
+        let mResult = runShell("\(venvPython) -c \"import mlx_vlm; print(mlx_vlm.__version__)\" 2>&1")
+        if mResult.exitCode == 0 {
+            let mVer = mResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            print("  [ok] mlx-vlm: \(mVer)")
+        }
     }
 
     // MARK: - ShowUI-2B Model

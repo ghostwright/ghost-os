@@ -18,7 +18,7 @@ Your AI agent can write code, run tests, search files. But it can't click a butt
 
 Ghost OS changes that. One install, and any AI agent can see and operate every app on your Mac.
 
-### What's New &nbsp; <img src="https://img.shields.io/badge/v2.1.1-March%2010%2C%202026-brightgreen.svg" alt="v2.1.1">
+### What's New &nbsp; <img src="https://img.shields.io/badge/v2.1.2-March%2010%2C%202026-brightgreen.svg" alt="v2.1.2">
 
 4 new tools. 26 total. Ghost OS can now annotate, hover, long-press, and drag.
 
@@ -29,7 +29,7 @@ Ghost OS changes that. One install, and any AI agent can see and operate every a
 
 ![Ghost OS New Tools Demo](demo-new-tools.gif)
 
-Also in v2.1.1: fixed vision model download for new users, and Chinese/CJK input support (thanks [@junshi5218](https://github.com/junshi5218)).
+Also in v2.1.2: pinned vision sidecar dependencies for reliable ghost_ground, fixed vision model download, and Chinese/CJK input support (thanks [@junshi5218](https://github.com/junshi5218)).
 
 Thank you to the 300+ people who have starred this project. You are why we keep building. If you want to contribute directly, we would love that. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -88,7 +88,7 @@ That's it. `ghost setup` handles permissions, MCP configuration, recipe installa
 Homebrew has a known issue on macOS developer betas where it demands an Xcode version that doesn't exist yet. If `brew install` fails, install directly:
 
 ```bash
-curl -sL https://github.com/ghostwright/ghost-os/releases/latest/download/ghost-os-2.1.1-macos-arm64.tar.gz | tar xz
+curl -sL https://github.com/ghostwright/ghost-os/releases/latest/download/ghost-os-2.1.2-macos-arm64.tar.gz | tar xz
 sudo cp ghost /opt/homebrew/bin/
 sudo cp ghost-vision /opt/homebrew/bin/
 sudo mkdir -p /opt/homebrew/share/ghost-os
