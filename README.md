@@ -171,7 +171,7 @@ $ ghost doctor
   [ok] Recipes: 5 installed
   [ok] AX Tree: 12/12 apps readable
   [ok] ghost-vision: /opt/homebrew/bin/ghost-vision
-  [ok] ShowUI-2B model: ~/.ghost-os/models/ShowUI-2B (2.8 GB)
+  [ok] ShowUI-2B model: ~/.ghost-os/models/ShowUI-2B (3.0 GB)
   [ok] Vision Sidecar: not running (auto-starts when needed)
 
   All checks passed. Ghost OS is healthy.

@@ -27,7 +27,7 @@ Usage:
   python3 server.py --version                 # Print version
 """
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 import argparse
 import base64
@@ -78,11 +78,19 @@ def resolve_model_path(explicit_path=None):
 
     for path in candidates:
         if os.path.isdir(path):
-            # Verify it looks like a real model directory
             safetensors = os.path.join(path, "model.safetensors")
             config = os.path.join(path, "config.json")
             if os.path.isfile(safetensors) and os.path.isfile(config):
                 return path
+            pytorch_bin = os.path.join(path, "pytorch_model.bin")
+            if os.path.isfile(pytorch_bin):
+                log(f"WARNING: Model at {path} is in PyTorch format (pytorch_model.bin). "
+                    f"Ghost OS requires MLX safetensors format. "
+                    f"Fix: rm -rf {path} && ghost setup")
+            elif os.path.isfile(config):
+                log(f"WARNING: Model at {path} has config.json but no model.safetensors. "
+                    f"Download may be incomplete. "
+                    f"Fix: rm -rf {path} && ghost setup")
 
     # Return first candidate for error message
     return candidates[0] if candidates else str(Path.home() / ".ghost-os/models/ShowUI-2B")
@@ -98,14 +106,14 @@ _vlm_load_error = None
 
 
 def _load_vlm():
-    """Load ShowUI-2B model. Called once, cached forever."""
+    """Load ShowUI-2B model. Retries on each call if previously failed."""
     global _vlm_model, _vlm_processor, _vlm_tokenizer, _vlm_load_error
 
     with _vlm_lock:
         if _vlm_model is not None:
             return True
-        if _vlm_load_error is not None:
-            return False
+
+        _vlm_load_error = None
 
         try:
             log(f"Loading ShowUI-2B from {MODEL_PATH}...")

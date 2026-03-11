@@ -30,6 +30,7 @@ struct Doctor {
         checkRecipes()
         checkAXTree()
         checkVisionBinary()
+        checkPythonVersion()
         checkShowUIModel()
         checkVisionSidecar()
 
@@ -251,6 +252,31 @@ struct Doctor {
         }
     }
 
+    // MARK: - Python Version
+
+    private mutating func checkPythonVersion() {
+        let venvPython = NSHomeDirectory() + "/.ghost-os/venv/bin/python3"
+        guard FileManager.default.isExecutableFile(atPath: venvPython) else {
+            return
+        }
+
+        let result = runShell("\(venvPython) -c \"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')\" 2>&1")
+        let version = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = version.split(separator: ".")
+        if parts.count >= 2,
+           let major = Int(parts[0]),
+           let minor = Int(parts[1]) {
+            if major < 3 || (major == 3 && minor < 10) {
+                print("  [!] Python version: \(version) (below minimum 3.10)")
+                print("    MLX requires Python 3.10+.")
+                print("    Fix: brew install python@3.12 && rm -rf ~/.ghost-os/venv && ghost setup")
+                warningCount += 1
+            } else {
+                print("  [ok] Python version: \(version)")
+            }
+        }
+    }
+
     // MARK: - ShowUI-2B Model
 
     private mutating func checkShowUIModel() {
@@ -265,7 +291,7 @@ struct Doctor {
                     print("  [ok] ShowUI-2B model: \(modelPath) (\(String(format: "%.1f", sizeGB)) GB)")
                 } else {
                     print("  [!] ShowUI-2B model: file seems too small (\(String(format: "%.2f", sizeGB)) GB)")
-                    print("    Expected: ~2.8 GB. May be incomplete download.")
+                    print("    Expected: ~3 GB. May be incomplete download.")
                     print("    Fix: rm -rf \(modelPath) && ghost setup")
                     warningCount += 1
                 }
@@ -290,13 +316,33 @@ struct Doctor {
                 warningCount += 1
             }
         } else {
-            print("  [!] ShowUI-2B model: not found")
-            print("    Checked:")
-            print("      /opt/homebrew/share/ghost-os/models/ShowUI-2B/")
-            print("      ~/.ghost-os/models/ShowUI-2B/")
-            print("      ~/.shadow/models/llm/ShowUI-2B-bf16-8bit/")
-            print("    Fix: ghost setup (downloads the model)")
-            warningCount += 1
+            // Check for PyTorch format model (common after broken setup)
+            let pytorchPaths = [
+                NSHomeDirectory() + "/.ghost-os/models/ShowUI-2B",
+                "/opt/homebrew/share/ghost-os/models/ShowUI-2B",
+            ]
+            var foundPytorch = false
+            for path in pytorchPaths {
+                let pytorchBin = (path as NSString).appendingPathComponent("pytorch_model.bin")
+                if FileManager.default.fileExists(atPath: pytorchBin) {
+                    print("  [FAIL] ShowUI-2B model: WRONG FORMAT")
+                    print("    Found pytorch_model.bin at \(path)")
+                    print("    Ghost OS requires MLX safetensors format, not PyTorch.")
+                    print("    Fix: rm -rf \(path) && ghost setup")
+                    issueCount += 1
+                    foundPytorch = true
+                    break
+                }
+            }
+            if !foundPytorch {
+                print("  [!] ShowUI-2B model: not found")
+                print("    Checked:")
+                print("      /opt/homebrew/share/ghost-os/models/ShowUI-2B/")
+                print("      ~/.ghost-os/models/ShowUI-2B/")
+                print("      ~/.shadow/models/llm/ShowUI-2B-bf16-8bit/")
+                print("    Fix: ghost setup (downloads the model)")
+                warningCount += 1
+            }
         }
     }
 

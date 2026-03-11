@@ -331,7 +331,18 @@ struct SetupWizard {
         let hasLauncher = findGhostVisionBinary() != nil
         let hasPython = checkPythonWithMLX()
 
-        // Check for model
+        // Detect and remove broken PyTorch-format model (incompatible with MLX)
+        let ghostModelDir = NSHomeDirectory() + "/.ghost-os/models/ShowUI-2B"
+        let pytorchBin = (ghostModelDir as NSString).appendingPathComponent("pytorch_model.bin")
+        let safetensorsFile = (ghostModelDir as NSString).appendingPathComponent("model.safetensors")
+        if FileManager.default.fileExists(atPath: pytorchBin)
+            && !FileManager.default.fileExists(atPath: safetensorsFile) {
+            print("  Found ShowUI-2B in PyTorch format (not compatible with MLX).")
+            print("  Removing to re-download in correct format...")
+            try? FileManager.default.removeItem(atPath: ghostModelDir)
+        }
+
+        // Check for model after potential cleanup
         let modelPath = findModelPath()
         let hasModel = modelPath != nil
 
@@ -365,7 +376,7 @@ struct SetupWizard {
         // Step 6b: Download model if missing
         if !hasModel {
             print("")
-            print("  ShowUI-2B model not found. Download now? (~2.8 GB)")
+            print("  ShowUI-2B model not found. Download now? (~3 GB)")
             print("  This enables visual element grounding for web apps.")
             print("")
             print("  Download? (Y/n) ", terminator: "")
@@ -382,7 +393,7 @@ struct SetupWizard {
                 printFail("Model download failed")
                 print("  You can download manually:")
                 print("    pip3 install huggingface-hub")
-                print("    huggingface-cli download showlab/ShowUI-2B --local-dir ~/.ghost-os/models/ShowUI-2B")
+                print("    huggingface-cli download mlx-community/ShowUI-2B-bf16-8bit --local-dir ~/.ghost-os/models/ShowUI-2B")
                 print("")
                 return false
             }
@@ -417,18 +428,41 @@ struct SetupWizard {
     private func setupPythonVenv() -> Bool {
         let venvPath = NSHomeDirectory() + "/.ghost-os/venv"
 
-        // Find system Python
+        // Find system Python (prefer versioned paths to avoid Xcode's Python 3.9)
         let pythonPath: String
-        let candidates = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
+        let candidates = [
+            "/opt/homebrew/bin/python3",
+            "/opt/homebrew/bin/python3.13",
+            "/opt/homebrew/bin/python3.12",
+            "/opt/homebrew/bin/python3.11",
+            "/opt/homebrew/bin/python3.10",
+            "/usr/local/bin/python3",
+            "/usr/bin/python3",
+        ]
         if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
             pythonPath = found
         } else {
             let which = runShell("which python3 2>/dev/null")
             guard which.exitCode == 0, !which.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                print("  ERROR: python3 not found. Install Python 3.9+ first.")
+                print("  ERROR: python3 not found. Install Python 3.10+ first.")
                 return false
             }
             pythonPath = which.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // MLX requires Python 3.10+
+        let versionResult = runShell("\(pythonPath) -c \"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')\" 2>&1")
+        let versionStr = versionResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vParts = versionStr.split(separator: ".")
+        if vParts.count >= 2,
+           let major = Int(vParts[0]),
+           let minor = Int(vParts[1]) {
+            if major < 3 || (major == 3 && minor < 10) {
+                print("  ERROR: Python \(versionStr) detected. MLX requires Python 3.10+.")
+                print("  Install a newer Python: brew install python@3.12")
+                print("  Then run `ghost setup` again.")
+                return false
+            }
         }
 
         // Create venv (skip if already exists and has pip)
@@ -476,7 +510,15 @@ struct SetupWizard {
     /// Resolve python3 to an absolute path by checking common locations then PATH.
     /// Returns nil if python3 cannot be found.
     private func resolveAbsolutePythonPath() -> String? {
-        let candidates = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
+        let candidates = [
+            "/opt/homebrew/bin/python3",
+            "/opt/homebrew/bin/python3.13",
+            "/opt/homebrew/bin/python3.12",
+            "/opt/homebrew/bin/python3.11",
+            "/opt/homebrew/bin/python3.10",
+            "/usr/local/bin/python3",
+            "/usr/bin/python3",
+        ]
         if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
             return found
         }
@@ -504,7 +546,7 @@ struct SetupWizard {
         } else if let resolved = resolveAbsolutePythonPath() {
             python = resolved
         } else {
-            print("  ERROR: python3 not found. Install Python 3.9+ first.")
+            print("  ERROR: python3 not found. Install Python 3.10+ first.")
             return false
         }
 
@@ -518,23 +560,22 @@ struct SetupWizard {
         let downloadScript = """
         import sys
         dest = sys.argv[1]
-        try:
+        ALLOW = ["*.safetensors", "*.json", "merges.txt", "vocab.txt", "vocab.json", "tokenizer.model"]
+        def download(dest):
             from huggingface_hub import snapshot_download
-            path = snapshot_download(
-                "showlab/ShowUI-2B",
+            return snapshot_download(
+                "mlx-community/ShowUI-2B-bf16-8bit",
                 local_dir=dest,
                 local_dir_use_symlinks=False,
+                allow_patterns=ALLOW,
             )
-            print(f"Downloaded to: {path}")
+        try:
+            from huggingface_hub import snapshot_download
         except ImportError:
             import subprocess
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "huggingface-hub"])
-            from huggingface_hub import snapshot_download
-            path = snapshot_download(
-                "showlab/ShowUI-2B",
-                local_dir=dest,
-                local_dir_use_symlinks=False,
-            )
+        try:
+            path = download(dest)
             print(f"Downloaded to: {path}")
         except Exception as e:
             print(f"ERROR: {e}", file=sys.stderr)
@@ -555,22 +596,37 @@ struct SetupWizard {
 
         // Verify the download
         let safetensorsPath = (destDir as NSString).appendingPathComponent("model.safetensors")
-        if FileManager.default.fileExists(atPath: safetensorsPath) {
-            // Check file size (should be > 2GB)
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: safetensorsPath),
-               let size = attrs[.size] as? UInt64
-            {
-                let sizeGB = Double(size) / 1_000_000_000
-                if sizeGB > 1.0 {
-                    print("")
-                    print("  Model downloaded successfully (\(String(format: "%.1f", sizeGB)) GB)")
-                    return true
-                }
+        let configPath = (destDir as NSString).appendingPathComponent("config.json")
+
+        guard FileManager.default.fileExists(atPath: safetensorsPath),
+              FileManager.default.fileExists(atPath: configPath) else {
+            let pytorchPath = (destDir as NSString).appendingPathComponent("pytorch_model.bin")
+            if FileManager.default.fileExists(atPath: pytorchPath) {
+                print("  ERROR: Model downloaded in PyTorch format (pytorch_model.bin).")
+                print("  Ghost OS requires MLX safetensors format.")
+                print("  Fix: rm -rf \(destDir) && ghost setup")
+            } else {
+                print("  ERROR: Download incomplete - model.safetensors not found.")
+            }
+            return false
+        }
+
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: safetensorsPath),
+           let size = attrs[.size] as? UInt64 {
+            let sizeGB = Double(size) / 1_000_000_000
+            if sizeGB > 1.0 {
+                print("")
+                print("  Model downloaded successfully (\(String(format: "%.1f", sizeGB)) GB)")
+                return true
+            } else {
+                print("  ERROR: model.safetensors too small (\(String(format: "%.2f", sizeGB)) GB). Download may be corrupt.")
+                print("  Fix: rm -rf \(destDir) && ghost setup")
+                return false
             }
         }
 
-        print("  WARNING: Model download may be incomplete. Check \(destDir)")
-        return true  // Still return true — might be usable
+        print("  ERROR: Could not verify model.safetensors file size.")
+        return false
     }
 
     /// Test the vision pipeline end-to-end

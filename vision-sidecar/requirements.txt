@@ -6,6 +6,6 @@
 # Install: pip3 install -r requirements.txt
 
 mlx>=0.21.0
-mlx-vlm>=0.1.0
+mlx-vlm>=0.1.14
 transformers>=4.38.0
 Pillow>=10.0.0
