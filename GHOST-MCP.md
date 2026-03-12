@@ -234,15 +234,7 @@ Ghost OS can learn workflows by watching the user perform them.
 5. Call `ghost_learn_stop` to get the recorded actions
 6. Analyze the actions: identify parameters (email addresses, names, URLs that should be substitutable)
 7. Synthesize a recipe JSON from the actions (see Recipe JSON Schema below)
-8. **Verify the recipe works before saving:**
-   - Call `ghost_recipe_save` with the recipe JSON
-   - Call `ghost_run` with the recipe name and test parameters
-   - If the run fails: call `ghost_recipe_delete`, fix the recipe JSON, and go back to step 8
-   - Repeat until the recipe runs successfully end-to-end
-9. The recipe is now verified and saved. Tell the user it's ready.
-
-**Do not skip verification.** A recipe that fails on first use is worse than no
-recipe at all. Always test before you consider it done.
+8. Verify the recipe works (see "Verifying recipes before saving" below)
 
 ### Synthesizing recipes from recordings
 When you receive the action array from ghost_learn_stop:
@@ -268,9 +260,9 @@ Missing or misnamed fields will cause a decode error.
   "description": "What this recipe does",
   "app": "Google Chrome",
   "params": {
-    "param_name": {
+    "recipient": {
       "type": "string",
-      "description": "What this parameter is for",
+      "description": "Email address of recipient",
       "required": true
     }
   },
@@ -283,43 +275,50 @@ Missing or misnamed fields will cause a decode error.
       "id": 1,
       "action": "click",
       "target": {
-        "criteria": [{"attribute": "AXRole", "value": "AXButton"}],
-        "computedNameContains": "Submit"
+        "criteria": [{"attribute": "AXDOMIdentifier", "value": ":oq"}],
+        "computedNameContains": "Compose"
       },
       "wait_after": {
         "condition": "elementExists",
-        "value": "Success",
+        "value": "To recipients",
         "timeout": 5
       },
-      "note": "Click the submit button"
+      "note": "Click the compose button"
     },
     {
       "id": 2,
       "action": "type",
       "target": {
-        "criteria": [{"attribute": "AXRole", "value": "AXTextField"}],
-        "computedNameContains": "Email"
+        "criteria": [{"attribute": "AXRole", "value": "AXComboBox"}],
+        "computedNameContains": "To recipients"
       },
-      "params": {"text": "{{param_name}}"},
-      "note": "Type into the email field"
+      "params": {"text": "{{recipient}}"},
+      "note": "Type recipient email"
     },
     {
       "id": 3,
       "action": "press",
       "params": {"key": "tab"},
-      "note": "Move to next field"
+      "note": "Confirm autocomplete and move to next field"
     },
     {
       "id": 4,
-      "action": "hotkey",
-      "params": {"keys": "cmd,return"},
-      "note": "Submit with Cmd+Return"
+      "action": "wait",
+      "params": {"condition": "elementExists", "value": "Subject", "timeout": "5"},
+      "note": "Wait for subject field to be ready"
     },
     {
       "id": 5,
-      "action": "focus",
-      "params": {"app": "Google Chrome"},
-      "note": "Bring Chrome to front"
+      "action": "hotkey",
+      "params": {"keys": "cmd,return"},
+      "note": "Send with Cmd+Return"
+    },
+    {
+      "id": 6,
+      "action": "wait",
+      "params": {"condition": "elementGone", "value": "Send", "timeout": "10"},
+      "on_failure": "skip",
+      "note": "Verify send completed (optional)"
     }
   ],
   "on_failure": "stop"
@@ -332,40 +331,79 @@ Missing or misnamed fields will cause a decode error.
 - `description` -- string, shown in `ghost_recipes` listing
 - `steps` -- array, at least one step
 
+**Optional top-level fields:**
+- `app` -- default app for all steps
+- `params` -- parameter definitions (see below)
+- `preconditions` -- conditions to check before running
+- `on_failure` -- `"stop"` (default) or `"skip"`. No other values are valid.
+
 **Step fields:**
 - `id` (required) -- integer, sequential starting from 1
-- `action` (required) -- one of: `click`, `type`, `press`, `hotkey`, `focus`, `scroll`
+- `action` (required) -- one of: `click`, `type`, `press`, `hotkey`, `focus`, `scroll`, `wait`, `hover`, `long_press`, `drag`
 - `target` (optional) -- Locator object for finding the element to act on
-- `params` (optional) -- action-specific parameters (see below)
-- `wait_after` (optional) -- condition to wait for after this step
+- `params` (optional) -- action-specific parameters (see below). All values are **strings**.
+- `wait_after` (optional) -- condition to wait for after this step completes
 - `note` (optional) -- human-readable description of what this step does
-- `on_failure` (optional) -- `"stop"` or `"continue"`
+- `on_failure` (optional) -- `"stop"` or `"skip"` (overrides recipe-level setting)
 
 **Action params by type:**
-- `click` -- target only, no params needed
-- `type` -- `{"text": "value or {{param}}"}` -- use `target` to specify which field
-- `press` -- `{"key": "return"}` -- key names: return, tab, escape, space, delete, up, down, left, right
-- `hotkey` -- `{"keys": "cmd,return"}` -- comma-separated modifier+key combo
-- `focus` -- `{"app": "App Name"}`
-- `scroll` -- `{"direction": "down", "amount": "3"}`
+
+| Action | Required params | Optional params |
+|--------|----------------|-----------------|
+| `click` | (none -- use `target`) | `x`, `y`, `button` (left/right/middle), `count` (2=double, 3=triple), `query` |
+| `type` | `text` | `into`, `clear` ("true"), `app` |
+| `press` | `key` | `modifiers` (comma-separated: cmd,shift,option,control), `app` |
+| `hotkey` | `keys` (comma-separated: cmd,return) | `app` |
+| `focus` | `app` | `window` |
+| `scroll` | `direction` (up/down/left/right) | `amount`, `x`, `y`, `app` |
+| `wait` | `condition` | `value`, `timeout` (seconds as string, default "10") |
+| `hover` | (none -- use `target`) | `x`, `y`, `query`, `app` |
+| `long_press` | (none -- use `target`) | `x`, `y`, `duration`, `button`, `query`, `app` |
+| `drag` | `to_x`, `to_y` | `from_x`, `from_y`, `duration`, `hold_duration`, `query`, `app` |
+
+Key names for `press`: return, tab, escape, space, delete, up, down, left, right, f1-f12.
+
+**Important:** The `wait` action is different from `wait_after`. A `wait` step is
+a standalone polling action with params like `{"condition": "elementExists", "value": "...", "timeout": "5"}`.
+Note that `timeout` is a **string** (all step params are strings). `wait_after` is a
+structured object on any step with `timeout` as a **number**. See the bundled
+`slack-send` recipe for an example using both.
 
 **Target (Locator) fields:**
-- `criteria` -- array of `{"attribute": "AXRole", "value": "AXButton"}` objects
+- `criteria` -- array of `{"attribute": "...", "value": "..."}` objects. Common attributes:
+  - `AXRole` -- element type (AXButton, AXTextField, AXTextArea, AXComboBox, AXLink, AXStaticText)
+  - `AXDOMIdentifier` -- DOM id for web apps (most reliable for Chrome/Electron)
 - `computedNameContains` -- string, matches element name/title/description (most useful field)
 - `matchAll` -- boolean, whether all criteria must match (default: true)
 
-**Wait condition fields:**
-- `condition` -- one of: `elementExists`, `elementGone`, `urlContains`, `titleContains`
-- `value` -- string to match against
-- `timeout` -- seconds to wait (default: 10)
+**wait_after fields:**
+- `condition` -- one of: `elementExists`, `elementGone`, `urlContains`, `titleContains`, `delay`
+- `value` -- string to match against (not needed for `delay`)
+- `timeout` -- number (seconds, default: 10). For `delay`, this is the sleep duration.
 
-**Param fields** (top-level `params` object):
+**Param definitions** (top-level `params` object):
 - Each key is the parameter name
 - `type` (required) -- `"string"`
 - `description` (required) -- what this parameter is for
 - `required` (optional) -- boolean
 
 Use `{{param_name}}` in step params to substitute recipe parameters at runtime.
+
+### Verifying recipes before saving
+
+**Always test a recipe before considering it done.** This applies whether the recipe
+came from self-learning mode or was authored from scratch.
+
+1. Save the recipe with `ghost_recipe_save`
+2. Ask the user for safe test parameters (especially for recipes that send messages,
+   emails, or modify files -- you don't want to send a real email during testing)
+3. Run with `ghost_run` using the test parameters
+4. If the run fails: `ghost_recipe_delete`, fix the JSON, go back to step 1
+5. Repeat until the recipe runs successfully end-to-end
+6. Tell the user the recipe is verified and ready
+
+**Do not skip verification.** A recipe that fails on first use is worse than no
+recipe at all.
 
 ### Requirements
 - Input Monitoring permission required (separate from Accessibility)
