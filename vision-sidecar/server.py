@@ -27,7 +27,7 @@ Usage:
   python3 server.py --version                 # Print version
 """
 
-__version__ = "2.1.2"
+__version__ = "2.2.0"
 
 import argparse
 import base64

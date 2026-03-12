@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-VERSION="2.1.2"
+VERSION="2.2.0"
 
 # Find server.py in order of priority
 find_server_script() {
