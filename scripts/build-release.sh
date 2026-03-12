@@ -79,8 +79,9 @@ rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/recipes"
 mkdir -p "$STAGE_DIR/vision-sidecar"
 
-# Binary
+# Binary (re-sign after copy — linker-signed adhoc signatures break on copy)
 cp "$BINARY" "$STAGE_DIR/ghost"
+codesign -f -s - "$STAGE_DIR/ghost"
 
 # ghost-vision launcher
 cp "$PROJECT_ROOT/vision-sidecar/ghost-vision" "$STAGE_DIR/ghost-vision"
