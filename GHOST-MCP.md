@@ -233,8 +233,16 @@ Ghost OS can learn workflows by watching the user perform them.
 4. User says they are done
 5. Call `ghost_learn_stop` to get the recorded actions
 6. Analyze the actions: identify parameters (email addresses, names, URLs that should be substitutable)
-7. Synthesize a recipe JSON from the actions
-8. Call `ghost_recipe_save` with the recipe JSON
+7. Synthesize a recipe JSON from the actions (see Recipe JSON Schema below)
+8. **Verify the recipe works before saving:**
+   - Call `ghost_recipe_save` with the recipe JSON
+   - Call `ghost_run` with the recipe name and test parameters
+   - If the run fails: call `ghost_recipe_delete`, fix the recipe JSON, and go back to step 8
+   - Repeat until the recipe runs successfully end-to-end
+9. The recipe is now verified and saved. Tell the user it's ready.
+
+**Do not skip verification.** A recipe that fails on first use is worse than no
+recipe at all. Always test before you consider it done.
 
 ### Synthesizing recipes from recordings
 When you receive the action array from ghost_learn_stop:
@@ -247,6 +255,117 @@ When you receive the action array from ghost_learn_stop:
 - Each `appSwitch` becomes a `focus` step
 - Infer `wait_after` conditions from timing gaps (>2s between actions suggests a page load)
 - The recipe must use schema_version 2 and be compatible with ghost_run
+
+### Recipe JSON Schema
+
+Every recipe saved via `ghost_recipe_save` must follow this exact structure.
+Missing or misnamed fields will cause a decode error.
+
+```json
+{
+  "schema_version": 2,
+  "name": "my-recipe-name",
+  "description": "What this recipe does",
+  "app": "Google Chrome",
+  "params": {
+    "param_name": {
+      "type": "string",
+      "description": "What this parameter is for",
+      "required": true
+    }
+  },
+  "preconditions": {
+    "app_running": "Google Chrome",
+    "url_contains": "example.com"
+  },
+  "steps": [
+    {
+      "id": 1,
+      "action": "click",
+      "target": {
+        "criteria": [{"attribute": "AXRole", "value": "AXButton"}],
+        "computedNameContains": "Submit"
+      },
+      "wait_after": {
+        "condition": "elementExists",
+        "value": "Success",
+        "timeout": 5
+      },
+      "note": "Click the submit button"
+    },
+    {
+      "id": 2,
+      "action": "type",
+      "target": {
+        "criteria": [{"attribute": "AXRole", "value": "AXTextField"}],
+        "computedNameContains": "Email"
+      },
+      "params": {"text": "{{param_name}}"},
+      "note": "Type into the email field"
+    },
+    {
+      "id": 3,
+      "action": "press",
+      "params": {"key": "tab"},
+      "note": "Move to next field"
+    },
+    {
+      "id": 4,
+      "action": "hotkey",
+      "params": {"keys": "cmd,return"},
+      "note": "Submit with Cmd+Return"
+    },
+    {
+      "id": 5,
+      "action": "focus",
+      "params": {"app": "Google Chrome"},
+      "note": "Bring Chrome to front"
+    }
+  ],
+  "on_failure": "stop"
+}
+```
+
+**Required fields:**
+- `schema_version` -- must be `2`
+- `name` -- string, used as filename and recipe identifier
+- `description` -- string, shown in `ghost_recipes` listing
+- `steps` -- array, at least one step
+
+**Step fields:**
+- `id` (required) -- integer, sequential starting from 1
+- `action` (required) -- one of: `click`, `type`, `press`, `hotkey`, `focus`, `scroll`
+- `target` (optional) -- Locator object for finding the element to act on
+- `params` (optional) -- action-specific parameters (see below)
+- `wait_after` (optional) -- condition to wait for after this step
+- `note` (optional) -- human-readable description of what this step does
+- `on_failure` (optional) -- `"stop"` or `"continue"`
+
+**Action params by type:**
+- `click` -- target only, no params needed
+- `type` -- `{"text": "value or {{param}}"}` -- use `target` to specify which field
+- `press` -- `{"key": "return"}` -- key names: return, tab, escape, space, delete, up, down, left, right
+- `hotkey` -- `{"keys": "cmd,return"}` -- comma-separated modifier+key combo
+- `focus` -- `{"app": "App Name"}`
+- `scroll` -- `{"direction": "down", "amount": "3"}`
+
+**Target (Locator) fields:**
+- `criteria` -- array of `{"attribute": "AXRole", "value": "AXButton"}` objects
+- `computedNameContains` -- string, matches element name/title/description (most useful field)
+- `matchAll` -- boolean, whether all criteria must match (default: true)
+
+**Wait condition fields:**
+- `condition` -- one of: `elementExists`, `elementGone`, `urlContains`, `titleContains`
+- `value` -- string to match against
+- `timeout` -- seconds to wait (default: 10)
+
+**Param fields** (top-level `params` object):
+- Each key is the parameter name
+- `type` (required) -- `"string"`
+- `description` (required) -- what this parameter is for
+- `required` (optional) -- boolean
+
+Use `{{param_name}}` in step params to substitute recipe parameters at runtime.
 
 ### Requirements
 - Input Monitoring permission required (separate from Accessibility)
