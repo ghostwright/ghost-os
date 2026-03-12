@@ -5,8 +5,9 @@ through the accessibility tree AND visual perception. Every button, text field,
 link, and label is available -- either through the AX tree (native apps) or
 vision-based grounding (web apps where Chrome exposes everything as AXGroup).
 
-You have 26 tools: perceive the screen, click, type, hover, drag, long-press,
-scroll, press keys, manage windows, wait for conditions, and run saved recipes.
+You have 29 tools: perceive the screen, click, type, hover, drag, long-press,
+scroll, press keys, manage windows, wait for conditions, run saved recipes,
+and learn new workflows by watching the user.
 
 ## Rule 1: Always Check Recipes First
 
@@ -221,6 +222,39 @@ Common wait conditions:
 - `elementExists` -- wait for an element to appear
 - `elementGone` -- wait for a loading indicator to disappear
 
+## Rule 13: Self-Learning Mode
+
+Ghost OS can learn workflows by watching the user perform them.
+
+### How to use learning mode
+1. User says they want to teach a workflow
+2. Call `ghost_learn_start` with a task_description
+3. Tell the user to perform the task
+4. User says they are done
+5. Call `ghost_learn_stop` to get the recorded actions
+6. Analyze the actions: identify parameters (email addresses, names, URLs that should be substitutable)
+7. Synthesize a recipe JSON from the actions
+8. Call `ghost_recipe_save` with the recipe JSON
+
+### Synthesizing recipes from recordings
+When you receive the action array from ghost_learn_stop:
+- Each `click` with an `element` context becomes a recipe step with a target Locator
+- Use `dom_id` as the primary criterion if available (most stable for web apps)
+- Use `role` + `computedNameContains` as secondary criteria
+- Each `typeText` where the text looks like user-specific data (email, name, URL) becomes a `{{parameter}}`
+- Each `keyPress` for Tab/Return becomes a `press` step
+- Each `hotkey` becomes a `hotkey` step
+- Each `appSwitch` becomes a `focus` step
+- Infer `wait_after` conditions from timing gaps (>2s between actions suggests a page load)
+- The recipe must use schema_version 2 and be compatible with ghost_run
+
+### Requirements
+- Input Monitoring permission required (separate from Accessibility)
+- Only records between ghost_learn_start and ghost_learn_stop (no background monitoring)
+- Password fields are automatically redacted
+- Recordings are ephemeral (in memory only, never written to disk)
+- Do not call ghost_run while ghost_learn is active (synthetic events would be re-recorded)
+
 ## Tool Reference
 
 | Tool | Purpose | Needs Focus? |
@@ -251,3 +285,6 @@ Common wait conditions:
 | ghost_recipe_delete | Delete recipe | No |
 | ghost_parse_screen | Detect ALL UI elements via vision | No |
 | ghost_ground | Find element coordinates via VLM | No |
+| ghost_learn_start | Start observing user actions for learning | No |
+| ghost_learn_stop | Stop observing and return recorded actions | No |
+| ghost_learn_status | Check learning mode status | No |

@@ -25,6 +25,7 @@ struct Doctor {
         checkBinary()
         checkAccessibility()
         checkScreenRecording()
+        checkInputMonitoring()
         checkProcesses()
         checkMCPConfig()
         checkRecipes()
@@ -68,6 +69,35 @@ struct Doctor {
             print("  [!] Screen Recording: not granted (screenshots won't work)")
             print("    Fix: System Settings > Privacy & Security > Screen Recording")
             print("    Add your terminal app (\(detectHostApp()))")
+            warningCount += 1
+        }
+    }
+
+    // MARK: - Input Monitoring
+
+    private mutating func checkInputMonitoring() {
+        // There is no direct API to check Input Monitoring permission.
+        // The only way is to attempt creating a CGEvent tap.
+        let testMask: CGEventMask = 1 << CGEventType.keyDown.rawValue
+        let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: testMask,
+            callback: { _, _, event, _ in Unmanaged.passUnretained(event) },
+            userInfo: nil
+        )
+
+        if let tap {
+            // Clean up the test tap immediately
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+            print("  [ok] Input Monitoring: granted (for learning mode)")
+        } else {
+            print("  [!] Input Monitoring: not granted (optional, for learning mode)")
+            print("    Fix: System Settings > Privacy & Security > Input Monitoring")
+            print("    Add your terminal app (\(detectHostApp()))")
+            print("    Only needed for ghost_learn (self-learning mode).")
             warningCount += 1
         }
     }

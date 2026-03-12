@@ -424,6 +424,16 @@ public enum MCPDispatch {
                 cropBox: cropBox
             )
 
+        // Learning
+        case "ghost_learn_start":
+            return LearningDispatch.learnStart(args: args)
+
+        case "ghost_learn_stop":
+            return LearningDispatch.learnStop(args: args)
+
+        case "ghost_learn_status":
+            return LearningDispatch.learnStatus(args: args)
+
         default:
             return ToolResult(success: false, error: "Unknown tool: \(tool)")
         }

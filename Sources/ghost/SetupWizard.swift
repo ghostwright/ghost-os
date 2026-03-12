@@ -4,10 +4,11 @@
 //   1. Detect host app (iTerm2, VS Code, Cursor, Terminal)
 //   2. Accessibility permission (opens System Settings to exact pane)
 //   3. Screen Recording permission (optional, for screenshots)
-//   4. MCP configuration for Claude Code (runs claude mcp add)
-//   5. Install bundled recipes
-//   6. Vision setup (Python venv + ShowUI-2B model download)
-//   7. Self-test verification
+//   4. Input Monitoring permission (optional, for learning mode)
+//   5. MCP configuration for Claude Code (runs claude mcp add)
+//   6. Install bundled recipes
+//   7. Vision setup (Python venv + ShowUI-2B model download)
+//   8. Self-test verification
 //
 // Usage: ghost setup
 
@@ -35,16 +36,19 @@ struct SetupWizard {
         // Step 3: Screen Recording (optional)
         let hasScreenRecording = checkScreenRecording(hostApp: hostApp)
 
-        // Step 4: MCP configuration
+        // Step 4: Input Monitoring (optional)
+        checkInputMonitoring(hostApp: hostApp)
+
+        // Step 5: MCP configuration
         configureMCP()
 
-        // Step 5: Install recipes
+        // Step 6: Install recipes
         installRecipes()
 
-        // Step 6: Vision setup (venv + model)
+        // Step 7: Vision setup (venv + model)
         let hasVision = setupVision()
 
-        // Step 7: Self-test
+        // Step 8: Self-test
         let verified = selfTest(
             hasAccess: hasAccess,
             hasScreenRecording: hasScreenRecording,
@@ -183,10 +187,54 @@ struct SetupWizard {
         return false
     }
 
-    // MARK: - Step 4: MCP Configuration
+    // MARK: - Step 4: Input Monitoring Permission (optional)
+
+    private func checkInputMonitoring(hostApp: String) {
+        printStep(4, "Input Monitoring Permission (optional)")
+
+        // Test by attempting tap creation
+        let testMask: CGEventMask = 1 << CGEventType.keyDown.rawValue
+        let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: testMask,
+            callback: { _, _, event, _ in Unmanaged.passUnretained(event) },
+            userInfo: nil
+        )
+
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+            printOK("Granted")
+            return
+        }
+
+        print("  Self-learning mode lets Ghost OS watch you perform tasks")
+        print("  and turn them into reusable recipes.")
+        print("  \(hostApp) needs Input Monitoring permission for this.")
+        print("")
+        print("  Set it up now? (y/N) ", terminator: "")
+        fflush(stdout)
+
+        guard let answer = readLine()?.lowercased(), answer == "y" || answer == "yes" else {
+            printOK("Skipped (you can set this up later)")
+            return
+        }
+
+        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+        print("")
+        print("  Add \"\(hostApp)\" to the Input Monitoring list.")
+        print("  Press Enter after granting...")
+        _ = readLine()
+
+        printOK("Permission change may require restarting the terminal app.")
+    }
+
+    // MARK: - Step 5: MCP Configuration
 
     private func configureMCP() {
-        printStep(4, "MCP Configuration")
+        printStep(5, "MCP Configuration")
 
         let binaryPath = resolveBinaryPath()
 
@@ -282,10 +330,10 @@ struct SetupWizard {
         printOK("Configured")
     }
 
-    // MARK: - Step 5: Install Recipes
+    // MARK: - Step 6: Install Recipes
 
     private func installRecipes() {
-        printStep(5, "Bundled Recipes")
+        printStep(6, "Bundled Recipes")
 
         let recipesDir = NSHomeDirectory() + "/.ghost-os/recipes"
         try? FileManager.default.createDirectory(atPath: recipesDir, withIntermediateDirectories: true)
@@ -322,10 +370,10 @@ struct SetupWizard {
         printOK("\(total) recipe(s) available")
     }
 
-    // MARK: - Step 6: Vision Setup
+    // MARK: - Step 7: Vision Setup
 
     private func setupVision() -> Bool {
-        printStep(6, "Vision (ShowUI-2B)")
+        printStep(7, "Vision (ShowUI-2B)")
 
         // Check if ghost-vision is available
         let hasLauncher = findGhostVisionBinary() != nil
@@ -707,10 +755,10 @@ struct SetupWizard {
         return nil
     }
 
-    // MARK: - Step 7: Self-Test
+    // MARK: - Step 8: Self-Test
 
     private func selfTest(hasAccess: Bool, hasScreenRecording: Bool, hasVision: Bool) -> Bool {
-        printStep(7, "Self-Test")
+        printStep(8, "Self-Test")
 
         guard hasAccess else {
             printFail("Skipped (needs Accessibility permission)")
