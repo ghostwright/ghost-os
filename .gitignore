@@ -8,6 +8,11 @@ DerivedData/
 .DS_Store
 local/
 
+# Claude Code plugin (local development)
+.claude-plugin/
+agents/
+skills/
+
 # Release artifacts
 ghost-os-*.tar.gz
 

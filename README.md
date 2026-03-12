@@ -18,18 +18,38 @@ Your AI agent can write code, run tests, search files. But it can't click a butt
 
 Ghost OS changes that. One install, and any AI agent can see and operate every app on your Mac.
 
-### What's New &nbsp; <img src="https://img.shields.io/badge/v2.1.2-March%2010%2C%202026-brightgreen.svg" alt="v2.1.2">
+### What's New &nbsp; <img src="https://img.shields.io/badge/v2.2.0-March%202026-brightgreen.svg" alt="v2.2.0">
 
-4 new tools. 26 total. Ghost OS can now annotate, hover, long-press, and drag.
+**Self-learning recipes.** Show Ghost OS how to do something once, and it remembers forever.
 
-- **`ghost_annotate`** takes a screenshot with numbered labels on every interactive element. The agent sees `[1] Button "Send"`, `[2] Link "Inbox"` with exact click coordinates. No vision model needed.
-- **`ghost_hover`** moves the cursor to trigger tooltips, CSS :hover effects, and dropdown menus without clicking.
-- **`ghost_long_press`** presses and holds for context menus, Force Touch previews, and drag initiation.
-- **`ghost_drag`** drags files between folders, adjusts sliders, reorders lists, selects text, resizes panes.
+- **`ghost_learn_start`** -- Begin watching the user perform a task
+- **`ghost_learn_stop`** -- Stop and return the enriched action sequence
+- **`ghost_learn_status`** -- Check recording progress
 
-![Ghost OS New Tools Demo](demo-new-tools.gif)
+The user performs the task manually (clicking, typing, switching apps). Ghost OS observes every action through a CGEvent tap enriched with accessibility tree context. Claude synthesizes the raw observation into a parameterized, replayable recipe.
 
-Also in v2.1.2: pinned vision sidecar dependencies for reliable ghost_ground, fixed vision model download, and Chinese/CJK input support (thanks [@junshi5218](https://github.com/junshi5218)).
+No screenshots needed. No vision model. Just the accessibility tree and your keyboard/mouse.
+
+```
+User:    "Watch me send an email."
+Agent:   ghost_learn_start task_description:"send email in Gmail"
+         ...user performs the task...
+Agent:   ghost_learn_stop
+         -> 8 actions with full AX context
+         -> Synthesizes recipe with 3 parameters: recipient, subject, body
+         -> ghost_recipe_save
+User:    "Send an email to bob about the Q4 report"
+Agent:   ghost_run recipe:"gmail-send-learned" params:{...}
+```
+
+Requires Input Monitoring permission (System Settings > Privacy & Security > Input Monitoring). Run `ghost setup` to configure.
+
+<details>
+<summary>Previous: v2.1.2</summary>
+
+4 new tools. ghost_annotate, ghost_hover, ghost_long_press, ghost_drag. Pinned vision sidecar dependencies, fixed vision model download, Chinese/CJK input support (thanks [@junshi5218](https://github.com/junshi5218)).
+
+</details>
 
 Thank you to the 300+ people who have starred this project. You are why we keep building. If you want to contribute directly, we would love that. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -88,7 +108,7 @@ That's it. `ghost setup` handles permissions, MCP configuration, recipe installa
 Homebrew has a known issue on macOS developer betas where it demands an Xcode version that doesn't exist yet. If `brew install` fails, install directly:
 
 ```bash
-curl -sL https://github.com/ghostwright/ghost-os/releases/latest/download/ghost-os-2.1.2-macos-arm64.tar.gz | tar xz
+curl -sL https://github.com/ghostwright/ghost-os/releases/latest/download/ghost-os-2.2.0-macos-arm64.tar.gz | tar xz
 sudo cp ghost /opt/homebrew/bin/
 sudo cp ghost-vision /opt/homebrew/bin/
 sudo mkdir -p /opt/homebrew/share/ghost-os
@@ -102,7 +122,7 @@ ghost setup
 
 ## How It Works
 
-Ghost OS connects to your AI agent through [MCP](https://modelcontextprotocol.io) and gives it 26 tools to see and operate your Mac. It reads the macOS accessibility tree for structured data about every app. For web apps where the AX tree falls short (Gmail, Slack), a local vision model (ShowUI-2B) finds elements visually. Click, type, hover, drag, scroll, press keys, manage windows. Any app, not just browsers.
+Ghost OS connects to your AI agent through [MCP](https://modelcontextprotocol.io) and gives it 29 tools to see and operate your Mac. It reads the macOS accessibility tree for structured data about every app. For web apps where the AX tree falls short (Gmail, Slack), a local vision model (ShowUI-2B) finds elements visually. Click, type, hover, drag, scroll, press keys, manage windows. Any app, not just browsers.
 
 ```
 You:     "Download the latest paper on chain-of-thought prompting from arXiv"
@@ -130,7 +150,7 @@ ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":
 - Chain recipes together. The agent knows when to call what.
 - Write once with Claude or GPT-4. Run forever with Haiku.
 
-## 26 Tools
+## 29 Tools
 
 | | Tool | What it does |
 |:---:|------|-------------|
@@ -160,6 +180,9 @@ ghost_run recipe:"gmail-send" params:{"recipient":"hello@example.com","subject":
 | 📦 | `ghost_recipe_show` | View the full steps and configuration of a recipe |
 | 📦 | `ghost_recipe_save` | Install a new recipe from JSON |
 | 📦 | `ghost_recipe_delete` | Remove an installed recipe |
+| 🎓 | `ghost_learn_start` | Start observing the user's actions for workflow learning |
+| 🎓 | `ghost_learn_stop` | Stop observing and return the enriched action sequence |
+| 🎓 | `ghost_learn_status` | Check if learning mode is active and recording stats |
 
 ## Diagnostics
 
@@ -168,6 +191,7 @@ $ ghost doctor
 
   [ok] Accessibility: granted
   [ok] Screen Recording: granted
+  [ok] Input Monitoring: granted (for learning mode)
   [ok] Processes: 1 ghost MCP process
   [ok] MCP Config: ghost-os configured
   [ok] Recipes: 5 installed

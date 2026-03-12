@@ -1,6 +1,6 @@
 // MCPTools.swift - MCP tool definitions (names, descriptions, parameter schemas)
 //
-// All 20 tools defined here. Agent sees these descriptions and schemas.
+// All 29 tools defined here. Agent sees these descriptions and schemas.
 // Make them excellent - they're the contract between Ghost OS and the agent.
 
 import Foundation
@@ -11,7 +11,7 @@ public enum MCPTools {
     /// All tool definitions as MCP-compatible dictionaries.
     public static func definitions() -> [[String: Any]] {
         var all = perception + actions + wait
-        all += recipes + vision + annotate
+        all += recipes + vision + annotate + learning
         return all
     }
 
@@ -306,6 +306,28 @@ public enum MCPTools {
                 "roles": propArray("string", "AX roles to include (default: buttons, links, fields, checkboxes, combos, tabs, sliders). Example: [\"AXButton\", \"AXLink\"]."),
                 "max_labels": prop("integer", "Maximum number of labels (default: 50, max: 100). Lower values reduce clutter."),
             ]
+        ),
+    ]
+
+    // MARK: - Learning Tools (3)
+
+    private static let learning: [[String: Any]] = [
+        tool(
+            name: "ghost_learn_start",
+            description: "Start observing the user's actions for workflow learning. Ghost OS records clicks, keystrokes, and app switches while the user performs a task manually. Call ghost_learn_stop when the user says they are done. Requires Input Monitoring permission (System Settings > Privacy & Security > Input Monitoring).",
+            properties: [
+                "task_description": prop("string", "Brief description of what the user is about to do (e.g., 'send an email in Gmail'). Helps the synthesis step."),
+            ]
+        ),
+        tool(
+            name: "ghost_learn_stop",
+            description: "Stop observing and return the recorded action sequence. Returns an array of observed actions with AX context (element role, title, DOM id, computed name) for each click and typed text. Use this data to synthesize a recipe via ghost_recipe_save.",
+            properties: [:]
+        ),
+        tool(
+            name: "ghost_learn_status",
+            description: "Check if learning mode is active, how many actions have been recorded, and how long the session has been running.",
+            properties: [:]
         ),
     ]
 
