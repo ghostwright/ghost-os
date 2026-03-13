@@ -23,6 +23,7 @@ nonisolated public final class LearningRecorder: @unchecked Sendable {
     private var eventTap: CFMachPort?
     private var learningRunLoop: CFRunLoop?
     private var learningThread: Thread?
+    private var startupCancelled = false
 
     // Keystroke coalescing -- only access within withLock or flushPending* (caller holds lock)
     internal var pendingKeystrokes: String = ""
@@ -64,27 +65,37 @@ nonisolated public final class LearningRecorder: @unchecked Sendable {
         if session != nil { os_unfair_lock_unlock(&lock); return .alreadyRecording }
         session = LearningSession(taskDescription: taskDescription)
         lastRecordedAppName = ""
+        startupCancelled = false
         os_unfair_lock_unlock(&lock)
 
-        let thread = Thread { [weak self] in self?.runLearningThread() }
+        let startupSignal = DispatchSemaphore(value: 0)
+        let thread = Thread { [weak self] in self?.runLearningThread(startupSignal: startupSignal) }
         thread.name = "ghost-learning"
         thread.qualityOfService = .userInteractive
         learningThread = thread
         thread.start()
 
-        // Busy-wait up to 500ms for tap creation
-        for _ in 0..<50 {
-            Thread.sleep(forTimeInterval: 0.01)
-            os_unfair_lock_lock(&lock)
-            let ready = eventTap != nil
-            os_unfair_lock_unlock(&lock)
-            if ready { learningLog("INFO", "Learning: recording started"); return nil }
-        }
+        let signaled = startupSignal.wait(timeout: .now() + .milliseconds(500)) == .success
 
         os_unfair_lock_lock(&lock)
-        let failed = eventTap == nil
-        if failed { session = nil }
+        let failed = !signaled || eventTap == nil
+        if failed {
+            session = nil
+            startupCancelled = true
+        }
         os_unfair_lock_unlock(&lock)
+
+        if failed {
+            for _ in 0..<50 {
+                if learningThread?.isFinished == true { break }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            if learningThread?.isFinished == true {
+                learningThread = nil
+                learningRunLoop = nil
+            }
+        }
+        if !failed { learningLog("INFO", "Learning: recording started") }
         return failed ? .inputMonitoringNotGranted : nil
     }
 
@@ -97,6 +108,7 @@ nonisolated public final class LearningRecorder: @unchecked Sendable {
         let actions = cur.actions
         let result = cur
         session = nil
+        startupCancelled = false
         os_unfair_lock_unlock(&lock)
 
         if let rl = learningRunLoop { CFRunLoopStop(rl) }
@@ -120,7 +132,15 @@ nonisolated public final class LearningRecorder: @unchecked Sendable {
 
     // MARK: - Background Thread
 
-    private func runLearningThread() {
+    private func runLearningThread(startupSignal: DispatchSemaphore) {
+        os_unfair_lock_lock(&lock)
+        let cancelledBeforeStart = startupCancelled || session == nil
+        os_unfair_lock_unlock(&lock)
+        if cancelledBeforeStart {
+            startupSignal.signal()
+            return
+        }
+
         var mask: CGEventMask = 0
         for t: CGEventType in [.keyDown, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .scrollWheel] {
             mask |= (1 << t.rawValue)
@@ -131,13 +151,25 @@ nonisolated public final class LearningRecorder: @unchecked Sendable {
             eventsOfInterest: mask, callback: learningEventCallback, userInfo: userInfo
         ) else {
             learningLog("ERROR", "Learning: CGEvent tap creation failed (Input Monitoring not granted?)")
-            os_unfair_lock_lock(&lock); session = nil; os_unfair_lock_unlock(&lock)
+            os_unfair_lock_lock(&lock)
+            session = nil
+            startupCancelled = true
+            os_unfair_lock_unlock(&lock)
+            startupSignal.signal()
             return
         }
 
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         let rl = CFRunLoopGetCurrent()!
-        os_unfair_lock_lock(&lock); eventTap = tap; learningRunLoop = rl; os_unfair_lock_unlock(&lock)
+        os_unfair_lock_lock(&lock)
+        let cancelledAfterCreate = startupCancelled || session == nil
+        if !cancelledAfterCreate {
+            eventTap = tap
+            learningRunLoop = rl
+        }
+        os_unfair_lock_unlock(&lock)
+        startupSignal.signal()
+        if cancelledAfterCreate { return }
 
         CFRunLoopAddSource(rl, source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
@@ -160,6 +192,9 @@ nonisolated public final class LearningRecorder: @unchecked Sendable {
         CFRunLoopRemoveSource(rl, source, .commonModes)
         os_unfair_lock_lock(&lock)
         eventTap = nil
+        learningRunLoop = nil
+        learningThread = nil
+        startupCancelled = false
         invalidateTimer(&keystrokeFlushTimer)
         invalidateTimer(&scrollFlushTimer)
         invalidateTimer(&maxDurationTimer)
