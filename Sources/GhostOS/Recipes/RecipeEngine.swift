@@ -273,6 +273,42 @@ public enum RecipeEngine {
                 count: params["count"].flatMap(Int.init)
             )
 
+        case "vision_click":
+            guard let description = params["description"] ?? params["query"] ?? params["target"] else {
+                return ToolResult(
+                    success: false,
+                    error: "Step \(step.id): 'vision_click' action requires 'description' param"
+                )
+            }
+
+            let cropBox = parseCropBox(params["crop_box"], appName: stepApp)
+            let grounded = VisionPerception.groundElement(
+                description: description,
+                appName: stepApp,
+                cropBox: cropBox
+            )
+            guard grounded.success,
+                  let x = grounded.data?["x"] as? Double,
+                  let y = grounded.data?["y"] as? Double
+            else {
+                return ToolResult(
+                    success: false,
+                    error: grounded.error ?? "Step \(step.id): vision grounding failed",
+                    suggestion: grounded.suggestion
+                )
+            }
+
+            return Actions.click(
+                query: nil,
+                role: nil,
+                domId: nil,
+                appName: stepApp,
+                x: x,
+                y: y,
+                button: params["button"],
+                count: params["count"].flatMap(Int.init)
+            )
+
         case "type":
             guard let text = params["text"] else {
                 return ToolResult(success: false, error: "Step \(step.id): 'type' action requires 'text' param")
@@ -374,9 +410,45 @@ public enum RecipeEngine {
             return ToolResult(
                 success: false,
                 error: "Unknown recipe action: '\(step.action)'",
-                suggestion: "Valid actions: click, type, press, hotkey, focus, scroll, hover, long_press, drag, wait"
+                suggestion: "Valid actions: click, vision_click, type, press, hotkey, focus, scroll, hover, long_press, drag, wait"
             )
         }
+    }
+
+    private static func parseCropBox(_ rawValue: String?, appName: String?) -> [Double]? {
+        guard let rawValue else { return nil }
+
+        let numbers = rawValue
+            .split(separator: ",")
+            .compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+
+        guard numbers.count == 4 else { return nil }
+
+        // Treat normalized values (0...1) as ratios of the focused window frame.
+        let isNormalized = numbers.allSatisfy { $0 >= 0 && $0 <= 1 }
+        guard isNormalized else { return numbers }
+
+        guard let appName,
+              let app = Perception.findApp(named: appName),
+              let appElement = Element.application(for: app.processIdentifier),
+              let window = appElement.focusedWindow(),
+              let pos = window.position(),
+              let size = window.size()
+        else {
+            return nil
+        }
+
+        let originX = Double(pos.x)
+        let originY = Double(pos.y)
+        let width = Double(size.width)
+        let height = Double(size.height)
+
+        return [
+            originX + numbers[0] * width,
+            originY + numbers[1] * height,
+            originX + numbers[2] * width,
+            originY + numbers[3] * height,
+        ]
     }
 
     // MARK: - Wait After
