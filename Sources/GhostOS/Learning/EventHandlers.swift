@@ -34,10 +34,13 @@ nonisolated enum EventHandlers {
         if flags.contains(.maskShift) { mods.append("shift") }
         if flags.contains(.maskAlternate) { mods.append("option") }
         if flags.contains(.maskControl) { mods.append("control") }
+        let hasShortcutModifier = flags.contains(.maskCommand)
+            || flags.contains(.maskAlternate)
+            || flags.contains(.maskControl)
 
         let chars = keyChars(from: event)
 
-        if let chars, mods.isEmpty {
+        if let chars, !hasShortcutModifier {
             // Coalesce character keys into pending buffer
             recorder.withLock { session in
                 guard session != nil else { return }
