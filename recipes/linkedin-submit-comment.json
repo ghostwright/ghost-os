@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "name": "linkedin-submit-comment",
+  "description": "Submit an already-open LinkedIn comment draft in Chrome by visually locating the blue 评论 button inside the active comment composer.",
+  "app": "Google Chrome",
+  "preconditions": {
+    "app_running": "Google Chrome",
+    "url_contains": "linkedin.com"
+  },
+  "steps": [
+    {
+      "id": 1,
+      "action": "vision_click",
+      "on_failure": "skip",
+      "note": "Click the blue 评论 submit button in the open LinkedIn comment composer",
+      "params": {
+        "description": "blue 评论 submit button at the bottom right of the open LinkedIn comment box",
+        "crop_box": "0.68,0.38,0.98,0.86"
+      },
+      "wait_after": {
+        "condition": "elementGone",
+        "value": "内容创建文本编辑器",
+        "timeout": 2
+      }
+    }
+  ],
+  "on_failure": "stop"
+}
