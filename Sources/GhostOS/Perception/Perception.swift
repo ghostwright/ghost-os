@@ -805,6 +805,12 @@ public enum Perception {
 
     /// Get Chrome window origin for coordinate conversion.
     private static func chromeWindowOrigin(appName: String?) -> (x: Double, y: Double) {
+        return Self.chromeWindowOriginPublic(appName: appName)
+    }
+
+    /// Public accessor for Chrome window origin. Used by VisionPerception for
+    /// CDP structured snapshots that need viewport-to-screen coordinate mapping.
+    public static func chromeWindowOriginPublic(appName: String?) -> (x: Double, y: Double) {
         let name = appName ?? "Chrome"
         guard let app = findApp(named: name),
               let appElement = Element.application(for: app.processIdentifier),
