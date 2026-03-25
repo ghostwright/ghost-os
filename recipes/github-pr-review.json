@@ -1,0 +1,82 @@
+{
+    "schema_version": 2,
+    "name": "github-pr-review",
+    "description": "Open a GitHub pull request and leave a review comment. Navigate to the PR page first (github.com/owner/repo/pull/N).",
+    "app": "Google Chrome",
+    "params": {
+        "comment": {
+            "type": "string",
+            "description": "Review comment text to leave on the PR",
+            "required": true
+        },
+        "action": {
+            "type": "string",
+            "description": "Review action: 'approve', 'comment', or 'request_changes' (default: 'comment')"
+        }
+    },
+    "preconditions": {
+        "app_running": "Google Chrome",
+        "url_contains": "github.com"
+    },
+    "steps": [
+        {
+            "id": 1,
+            "action": "click",
+            "target": {
+                "criteria": [{"attribute": "AXRole", "value": "AXLink"}],
+                "computedNameContains": "Files changed"
+            },
+            "wait_after": {
+                "condition": "elementExists",
+                "value": "Review changes",
+                "timeout": 10
+            },
+            "note": "Navigate to Files changed tab"
+        },
+        {
+            "id": 2,
+            "action": "click",
+            "target": {
+                "criteria": [],
+                "computedNameContains": "Review changes"
+            },
+            "wait_after": {
+                "condition": "elementExists",
+                "value": "Leave a comment",
+                "timeout": 5
+            },
+            "note": "Open review dialog"
+        },
+        {
+            "id": 3,
+            "action": "click",
+            "target": {
+                "criteria": [],
+                "computedNameContains": "Leave a comment"
+            },
+            "note": "Focus the comment textarea"
+        },
+        {
+            "id": 4,
+            "action": "type",
+            "params": {"text": "{{comment}}"},
+            "note": "Type review comment"
+        },
+        {
+            "id": 5,
+            "action": "click",
+            "target": {
+                "criteria": [],
+                "computedNameContains": "Submit review"
+            },
+            "wait_after": {
+                "condition": "elementExists",
+                "value": "reviewed",
+                "timeout": 10
+            },
+            "on_failure": "skip",
+            "note": "Submit the review"
+        }
+    ],
+    "on_failure": "stop"
+}
