@@ -86,14 +86,34 @@ public enum RecipeEngine {
             stepResults.append(stepResult)
 
             if !result.success {
-                let failurePolicy = step.onFailure ?? globalFailurePolicy
+                // AUTO-HEAL: Before giving up, try CDP-based element finding for
+                // click/type actions in browser apps. This handles the common case
+                // where a web app updated its DOM IDs but the element text is the same.
+                if let _ = attemptAutoHeal(
+                    step: step, resolvedParams: resolvedParams, appName: recipe.app
+                ) {
+                    // Auto-heal succeeded — update the step result
+                    let healDuration = Int(Date().timeIntervalSince(stepStart) * 1000)
+                    stepResults[stepResults.count - 1] = RecipeStepResult(
+                        stepId: step.id,
+                        action: step.action,
+                        success: true,
+                        durationMs: healDuration,
+                        error: nil,
+                        note: (step.note ?? step.action) + " [auto-healed via CDP]"
+                    )
+                    Log.info("Recipe '\(recipe.name)' step \(step.id) auto-healed via CDP")
+                    // Continue to wait_after handling below (don't return)
+                } else {
+                    // Auto-heal failed — apply normal failure policy
+                    let failurePolicy = step.onFailure ?? globalFailurePolicy
 
-                if failurePolicy == "skip" {
-                    Log.info("Recipe '\(recipe.name)' step \(step.id) failed (skipping): \(result.error ?? "")")
-                    continue
-                }
+                    if failurePolicy == "skip" {
+                        Log.info("Recipe '\(recipe.name)' step \(step.id) failed (skipping): \(result.error ?? "")")
+                        continue
+                    }
 
-                // Stop: return failure with diagnostics
+                    // Stop: return failure with diagnostics
                 let totalDuration = Int(Date().timeIntervalSince(startTime) * 1000)
 
                 // Capture failure context
@@ -126,6 +146,7 @@ public enum RecipeEngine {
                     error: "Recipe '\(recipe.name)' failed at step \(step.id) (\(step.note ?? step.action)): \(result.error ?? "")",
                     suggestion: "Check the current_context and failed_step details. Use ghost_screenshot for visual debugging."
                 )
+                } // end else (auto-heal failed)
             }
 
             // Handle wait_after condition (substitute {{params}} in value)
@@ -244,6 +265,97 @@ public enum RecipeEngine {
             value: value,
             timeout: waitAfter.timeout
         )
+    }
+
+    // MARK: - Auto-Heal
+
+    /// Attempt to recover a failed recipe step using CDP element finding.
+    ///
+    /// When a click/type step fails (usually because a DOM ID changed after a
+    /// web app update), this function tries to find the target element via CDP
+    /// using the step's computedNameContains text. If found, it re-executes the
+    /// action with the CDP-found coordinates.
+    ///
+    /// Only applies to click/type/hover actions in browser apps with CDP available.
+    /// Returns nil if auto-heal is not applicable or fails.
+    private static func attemptAutoHeal(
+        step: RecipeStep,
+        resolvedParams: [String: String]?,
+        appName: String?
+    ) -> ToolResult? {
+        // Only auto-heal click/type/hover actions
+        guard ["click", "type", "hover"].contains(step.action) else { return nil }
+
+        // Only for browser apps with CDP
+        guard CDPBridge.isBrowserApp(appName), CDPBridge.isAvailable() else { return nil }
+
+        // Need a text query to search for
+        let query = step.target?.computedNameContains
+            ?? resolvedParams?["query"]
+            ?? resolvedParams?["into"]
+            ?? resolvedParams?["target"]
+        guard let query, !query.isEmpty else { return nil }
+
+        Log.info("Auto-heal: trying CDP for '\(query)' (step \(step.id), action: \(step.action))")
+
+        // Try to find the element via CDP
+        guard let cdpElements = CDPBridge.findElements(query: query),
+              let first = cdpElements.first
+        else {
+            Log.info("Auto-heal: CDP found no matches for '\(query)'")
+            return nil
+        }
+
+        // Get screen coordinates
+        let viewportX = first["centerX"] as? Int ?? 0
+        let viewportY = first["centerY"] as? Int ?? 0
+        let windowOrigin = Perception.chromeWindowOriginPublic(appName: appName)
+        let screen = CDPBridge.viewportToScreen(
+            viewportX: Double(viewportX), viewportY: Double(viewportY),
+            windowX: windowOrigin.x, windowY: windowOrigin.y
+        )
+
+        // Re-execute the action with CDP coordinates
+        switch step.action {
+        case "click":
+            let result = Actions.click(
+                query: nil, role: nil, domId: nil,
+                appName: appName,
+                x: screen.x, y: screen.y,
+                button: resolvedParams?["button"],
+                count: resolvedParams?["count"].flatMap(Int.init)
+            )
+            return result.success ? result : nil
+
+        case "type":
+            // Click the field first, then type
+            let clickResult = Actions.click(
+                query: nil, role: nil, domId: nil,
+                appName: appName,
+                x: screen.x, y: screen.y,
+                button: nil, count: nil
+            )
+            guard clickResult.success else { return nil }
+
+            if let text = resolvedParams?["text"] {
+                let clear = resolvedParams?["clear"] == "true"
+                return Actions.typeText(
+                    text: text, into: nil, domId: nil,
+                    appName: appName, clear: clear
+                )
+            }
+            return clickResult
+
+        case "hover":
+            return Actions.hover(
+                query: nil, role: nil, domId: nil,
+                appName: appName,
+                x: screen.x, y: screen.y
+            )
+
+        default:
+            return nil
+        }
     }
 
     // MARK: - Step Execution

@@ -41,6 +41,39 @@ public enum CDPBridge {
     /// cases where Chrome is hung or the WebSocket connection is stale.
     private static let wsTimeout: TimeInterval = 3.0
 
+    // MARK: - Target Cache
+
+    /// Cached debug targets to avoid repeated HTTP calls within a single
+    /// findElements invocation chain. Cache is very short-lived (1 second)
+    /// since tabs can open/close at any time.
+    private static let targetCacheTTL: TimeInterval = 1.0
+    private nonisolated(unsafe) static var cachedTargets: [[String: Any]]?
+    private nonisolated(unsafe) static var cachedTargetsTime: Date?
+
+    // MARK: - Browser App Detection
+
+    /// Known browser/Electron app names that expose DOM via CDP.
+    /// Used by Perception to decide whether to try CDP before AX tree walk.
+    private static let browserAppNames = [
+        "Google Chrome", "Chrome", "Chromium", "Arc", "Arc Browser",
+        "Microsoft Edge", "Brave Browser", "Vivaldi", "Opera",
+        // Electron apps (use Chrome's engine, expose CDP when debug port is open)
+        "Slack", "Discord", "Visual Studio Code", "Code",
+        "Figma", "Notion", "Obsidian", "Cursor",
+    ]
+
+    /// Check if an app name corresponds to a Chrome/Electron browser.
+    /// Used by Perception.findElements() to decide routing:
+    ///   - Browser app → CDP-First path (try CDP before AX tree walk)
+    ///   - Native app  → AX-First path (existing behavior, unchanged)
+    ///
+    /// False positives are safe: CDP will simply return nil and fall through.
+    /// False negatives cost ~11s per query (full AX tree walk before CDP).
+    public static func isBrowserApp(_ name: String?) -> Bool {
+        guard let name else { return false }
+        return browserAppNames.contains(where: { name.localizedCaseInsensitiveContains($0) })
+    }
+
     // MARK: - Availability Check
 
     /// Check if Chrome is running with remote debugging enabled.
@@ -49,7 +82,17 @@ public enum CDPBridge {
     }
 
     /// Get the list of debuggable Chrome tabs.
+    /// Uses a 1-second cache to avoid repeated HTTP calls during a single
+    /// ghost_find → ghost_click sequence.
     public static func getDebugTargets() -> [[String: Any]]? {
+        // Return cached targets if fresh enough
+        if let cached = cachedTargets,
+           let time = cachedTargetsTime,
+           Date().timeIntervalSince(time) < targetCacheTTL
+        {
+            return cached
+        }
+
         guard let url = URL(string: "http://127.0.0.1:\(defaultPort)/json") else {
             return nil
         }
@@ -77,8 +120,14 @@ public enum CDPBridge {
               let data = box.data,
               let targets = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else {
+            cachedTargets = nil
+            cachedTargetsTime = nil
             return nil
         }
+
+        // Update cache
+        cachedTargets = targets
+        cachedTargetsTime = Date()
 
         return targets
     }
@@ -91,6 +140,19 @@ public enum CDPBridge {
     ///
     /// This is dramatically faster than AX tree walking for web apps
     /// (~50ms vs ~11s for Gmail).
+    ///
+    /// Search strategies (executed in order, results deduplicated):
+    ///   1. CSS Selector — direct query if input looks like a selector (#id, .class, tag)
+    ///   2. data-testid — React/Vue test attribute match
+    ///   3. aria-label — ARIA label match (existing)
+    ///   4. placeholder — input placeholder match (existing)
+    ///   5. role + text — ARIA role with text content match
+    ///   6. button/link text — text content of interactive elements (existing)
+    ///   7. input labels — label[for] association (existing)
+    ///   8. title/alt — title or alt attribute match (existing)
+    ///   9. nearest-input — find label text, return nearest input/textarea
+    ///  10. Shadow DOM — pierce open shadow roots
+    ///  11. fuzzy text — Levenshtein distance <= 2 for typo tolerance
     public static func findElements(
         query: String,
         tabIndex: Int = 0
@@ -107,8 +169,8 @@ public enum CDPBridge {
             return nil
         }
 
-        // JavaScript that finds elements by text content, aria-label, placeholder, etc.
-        // Returns an array of {text, tag, role, x, y, width, height} objects.
+        // JavaScript that finds elements using 11 strategies.
+        // Returns an array of {text, tag, role, x, y, width, height, ...} objects.
         let js = """
         (function() {
             const query = \(escapeJSString(query));
@@ -125,12 +187,14 @@ public enum CDPBridge {
                 if (seen.has(key)) return;
                 seen.add(key);
 
+                const dataTestId = el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '';
                 results.push({
                     text: (el.textContent || '').trim().substring(0, 100),
                     tag: el.tagName.toLowerCase(),
                     role: el.getAttribute('role') || '',
                     ariaLabel: el.getAttribute('aria-label') || '',
                     id: el.id || '',
+                    dataTestId: dataTestId,
                     className: (el.className || '').toString().substring(0, 100),
                     x: Math.round(rect.x),
                     y: Math.round(rect.y),
@@ -143,33 +207,59 @@ public enum CDPBridge {
                                 el.getAttribute('role') === 'button' ||
                                 el.getAttribute('role') === 'link' ||
                                 el.getAttribute('role') === 'textbox' ||
+                                el.getAttribute('role') === 'combobox' ||
+                                el.getAttribute('role') === 'menuitem' ||
                                 el.onclick !== null ||
-                                el.getAttribute('tabindex') !== null
+                                el.getAttribute('tabindex') !== null ||
+                                window.getComputedStyle(el).cursor === 'pointer'
                 });
             }
 
-            // Strategy 1: aria-label match
+            // Strategy 1: CSS Selector — if query starts with #, ., or contains []
+            if (/^[#.[]/.test(query) || /\\w+\\[/.test(query)) {
+                try {
+                    document.querySelectorAll(query).forEach(el => addResult(el, 'css-selector'));
+                } catch(e) { /* invalid selector, skip */ }
+            }
+
+            // Strategy 2: data-testid match (React/Vue/Angular test attributes)
+            document.querySelectorAll('[data-testid], [data-test-id]').forEach(el => {
+                const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').toLowerCase();
+                if (tid.includes(queryLower)) {
+                    addResult(el, 'data-testid');
+                }
+            });
+
+            // Strategy 3: aria-label match
             document.querySelectorAll('[aria-label]').forEach(el => {
                 if (el.getAttribute('aria-label').toLowerCase().includes(queryLower)) {
                     addResult(el, 'aria-label');
                 }
             });
 
-            // Strategy 2: placeholder match
+            // Strategy 4: placeholder match
             document.querySelectorAll('[placeholder]').forEach(el => {
                 if (el.getAttribute('placeholder').toLowerCase().includes(queryLower)) {
                     addResult(el, 'placeholder');
                 }
             });
 
-            // Strategy 3: button/link text content match
-            document.querySelectorAll('button, a, [role="button"], [role="link"], [role="tab"]').forEach(el => {
+            // Strategy 5: role + aria-label/text combo (ARIA widgets)
+            document.querySelectorAll('[role]').forEach(el => {
+                const label = el.getAttribute('aria-label') || el.textContent || '';
+                if (label.toLowerCase().includes(queryLower)) {
+                    addResult(el, 'role-text');
+                }
+            });
+
+            // Strategy 6: button/link text content match
+            document.querySelectorAll('button, a, [role="button"], [role="link"], [role="tab"], [role="menuitem"]').forEach(el => {
                 if ((el.textContent || '').toLowerCase().includes(queryLower)) {
                     addResult(el, 'text-content');
                 }
             });
 
-            // Strategy 4: input labels
+            // Strategy 7: input labels
             document.querySelectorAll('label').forEach(label => {
                 if ((label.textContent || '').toLowerCase().includes(queryLower)) {
                     const forId = label.getAttribute('for');
@@ -180,13 +270,72 @@ public enum CDPBridge {
                 }
             });
 
-            // Strategy 5: title/alt attribute match
+            // Strategy 8: title/alt attribute match
             document.querySelectorAll('[title], [alt]').forEach(el => {
                 const t = (el.getAttribute('title') || el.getAttribute('alt') || '').toLowerCase();
                 if (t.includes(queryLower)) {
                     addResult(el, 'title-attr');
                 }
             });
+
+            // Strategy 9: nearest-input — find text, return the closest input/textarea
+            if (results.length === 0) {
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+                while (walker.nextNode()) {
+                    if (walker.currentNode.textContent.toLowerCase().includes(queryLower)) {
+                        let parent = walker.currentNode.parentElement;
+                        for (let i = 0; i < 5 && parent; i++) {
+                            const input = parent.querySelector('input, textarea, select, [contenteditable="true"]');
+                            if (input) { addResult(input, 'nearest-input'); break; }
+                            parent = parent.parentElement;
+                        }
+                    }
+                }
+            }
+
+            // Strategy 10: Shadow DOM — pierce open shadow roots (Web Components)
+            if (results.length === 0) {
+                function searchShadow(root) {
+                    root.querySelectorAll('*').forEach(el => {
+                        if (el.shadowRoot) {
+                            el.shadowRoot.querySelectorAll('[aria-label], button, a, [role="button"], input').forEach(inner => {
+                                const label = inner.getAttribute('aria-label') || inner.textContent || '';
+                                if (label.toLowerCase().includes(queryLower)) {
+                                    addResult(inner, 'shadow-dom');
+                                }
+                            });
+                            searchShadow(el.shadowRoot);
+                        }
+                    });
+                }
+                searchShadow(document);
+            }
+
+            // Strategy 11: fuzzy text match (Levenshtein distance <= 2)
+            if (results.length === 0 && query.length >= 3) {
+                function levenshtein(a, b) {
+                    const m = a.length, n = b.length;
+                    if (Math.abs(m - n) > 2) return 3;
+                    const d = Array.from({length: m + 1}, (_, i) => [i]);
+                    for (let j = 1; j <= n; j++) d[0][j] = j;
+                    for (let i = 1; i <= m; i++)
+                        for (let j = 1; j <= n; j++)
+                            d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+(a[i-1]!==b[j-1]?1:0));
+                    return d[m][n];
+                }
+                document.querySelectorAll('button, a, [role="button"], [role="link"], input, [role="tab"]').forEach(el => {
+                    const text = (el.getAttribute('aria-label') || el.textContent || '').trim().toLowerCase();
+                    if (text.length > 0 && text.length < 50) {
+                        const words = text.split(/\\s+/);
+                        for (const word of words) {
+                            if (levenshtein(queryLower, word) <= 2) {
+                                addResult(el, 'fuzzy-text');
+                                break;
+                            }
+                        }
+                    }
+                });
+            }
 
             return results.slice(0, 20);
         })();

@@ -137,7 +137,32 @@ public enum Perception {
             )
         }
 
-        // Strategy 2: AXorcist's search with ElementSearchOptions
+        // Strategy 2 (CDP-First): For Chrome/Electron apps, try CDP BEFORE
+        // the expensive AX tree walk. CDP queries the real DOM via JavaScript
+        // and returns in ~50ms vs ~11s for a full AX tree walk on web apps.
+        //
+        // Routing: browser app → CDP first → AX fallback
+        //          native app  → AX first  → CDP fallback (existing behavior)
+        if CDPBridge.isBrowserApp(appName), let query, identifier == nil {
+            if let cdpResults = cdpFallbackFind(query: query, appName: appName) {
+                Log.info("CDP-First: found \(cdpResults.count) elements for '\(query)' (skipped AX tree walk)")
+                return ToolResult(
+                    success: true,
+                    data: [
+                        "elements": cdpResults,
+                        "count": cdpResults.count,
+                        "total_matches": cdpResults.count,
+                        "source": "cdp-first",
+                    ],
+                    suggestion: "Elements found via Chrome DevTools Protocol (CDP-First path). " +
+                                "Use ghost_click with the x/y coordinates shown in the position field."
+                )
+            }
+            // CDP miss — fall through to AX tree walk
+            Log.debug("CDP-First: no results for '\(query)', falling through to AX tree")
+        }
+
+        // Strategy 3: AXorcist's search with ElementSearchOptions
         var options = ElementSearchOptions()
         options.maxDepth = maxDepth
         options.caseInsensitive = true
@@ -162,9 +187,10 @@ public enum Perception {
             results = semanticDepthSearch(query: query, role: role, in: searchRoot, maxDepth: maxDepth)
         }
 
-        // CDP fallback: if AX search found nothing and we're in Chrome/Electron,
-        // try Chrome DevTools Protocol for instant DOM-based element finding.
-        if results.isEmpty, let query {
+        // CDP fallback (for native apps): if AX search found nothing,
+        // try Chrome DevTools Protocol as last resort before vision.
+        // For browser apps this was already tried above (CDP-First path).
+        if results.isEmpty, let query, !CDPBridge.isBrowserApp(appName) {
             if let cdpResults = cdpFallbackFind(query: query, appName: appName) {
                 return ToolResult(
                     success: true,
@@ -779,6 +805,12 @@ public enum Perception {
 
     /// Get Chrome window origin for coordinate conversion.
     private static func chromeWindowOrigin(appName: String?) -> (x: Double, y: Double) {
+        return Self.chromeWindowOriginPublic(appName: appName)
+    }
+
+    /// Public accessor for Chrome window origin. Used by VisionPerception for
+    /// CDP structured snapshots that need viewport-to-screen coordinate mapping.
+    public static func chromeWindowOriginPublic(appName: String?) -> (x: Double, y: Double) {
         let name = appName ?? "Chrome"
         guard let app = findApp(named: name),
               let appElement = Element.application(for: app.processIdentifier),
