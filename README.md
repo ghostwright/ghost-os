@@ -276,6 +276,71 @@ Ghost OS MCP Server (Swift)
 
 ~7,000 lines of Swift + Python vision sidecar. Built on [AXorcist](https://github.com/steipete/AXorcist) by [@steipete](https://github.com/steipete).
 
+
+## FAQ
+
+### What is Ghost OS?
+
+Ghost OS is a macOS computer-use platform that gives AI agents eyes and hands to operate every app on your Mac. It reads the macOS accessibility tree for structured data about every element, and falls back to a local vision model (ShowUI-2B) when needed.
+
+### How is Ghost OS different from screenshot-based computer-use tools?
+
+Ghost OS reads the macOS accessibility tree — structured, labeled data about every element in every app. Other tools (Anthropic Computer Use, OpenAI Operator) take screenshots and guess what on screen. Ghost OS is native (not just browsers), transparent (recipes are JSON), and self-learning.
+
+### What are recipes?
+
+Recipes are saved workflows in JSON format. A frontier model figures out the workflow once, then a small model runs it forever. Each recipe has steps, parameters, and wait conditions. You can read every step before running — no black box.
+
+### How do I install Ghost OS?
+
+```bash
+brew install ghostwright/ghost-os/ghost-os
+ghost setup
+```
+
+`ghost setup` handles permissions, MCP configuration, recipe installation, and vision model setup.
+
+### What LLM providers does Ghost OS support?
+
+Ghost OS works with any MCP-compatible AI client: Claude Code, Cursor, VS Code, or anything that speaks MCP. The AI model you use depends on your MCP client configuration.
+
+### What apps can Ghost OS operate?
+
+Any macOS app — not just browsers. Slack, Finder, Messages, Mail, Safari, Chrome, and any native macOS application. Ghost OS uses the accessibility tree which works across all macOS apps.
+
+### What are the self-learning tools?
+
+Ghost OS v2.2.1 introduced self-learning recipes:
+- `ghost_learn_start` — Begin watching the user perform a task
+- `ghost_learn_stop` — Stop and return the enriched action sequence
+- `ghost_learn_status` — Check recording progress
+
+The user performs the task manually, and Ghost OS synthesizes it into a replayable recipe.
+
+### What is Specter?
+
+Specter is a companion product that deploys persistent AI agents to dedicated VMs in 90 seconds. It provides automatic DNS, TLS, systemd hardening, and an interactive TUI dashboard. See [github.com/ghostwright/specter](https://github.com/ghostwright/specter).
+
+### What is Shadow?
+
+Shadow is the other half — it gives AI agents memory and intelligence. 14-modality capture, proactive suggestions, episode generation, on-device LLM inference. See [github.com/ghostwright/shadow](https://github.com/ghostwright/shadow).
+
+### Does Ghost OS work on Linux or Windows?
+
+Currently macOS 14+ only. Ghost OS uses macOS-specific APIs (CGEvent tap, accessibility tree) for native app control.
+
+### How do I troubleshoot issues?
+
+1. Run `ghost setup` to reconfigure permissions
+2. Check Input Monitoring permission in System Settings > Privacy & Security
+3. Ensure your MCP client is configured correctly
+4. Check [CONTRIBUTING.md](CONTRIBUTING.md) for development issues
+
+### Where can I get help?
+
+- [GitHub Issues](https://github.com/ghostwright/ghost-os/issues)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). We need recipes for more apps, testing on different setups, and bug reports. If you're building AI agents that do real things, this is the project.
@@ -291,3 +356,4 @@ Thanks to everyone who has contributed to Ghost OS.
 ## License
 
 MIT
+
